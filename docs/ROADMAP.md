@@ -12,21 +12,20 @@ Status: complete.
 
 ## Phase 1: Source Intake
 
-Status: pending.
+Status: in progress.
 
-- Receive source files or starter template.
-- Identify runtime, framework, package manager, and build tooling.
-- Move files into the correct project structure.
-- Add local setup, run, test, and build commands.
+- Add Python validation engine.
+- Wire MiniCPM through an OpenAI-compatible endpoint.
+- Add CLI harness with seeded test ideas.
+- Run the spiral and judge whether pressure is sharp or generic.
 
 ## Phase 2: Core Implementation
 
 Status: pending.
 
-- Define the first user-facing workflow.
-- Implement the smallest usable version.
-- Add focused tests around core behavior.
-- Document architecture and configuration.
+- Build the Gradio app after the engine clears the validation gate.
+- Embed the custom Iris chamber UI through HTML/CSS/JS.
+- Preserve the "pressure, not answer" product rule.
 
 ## Phase 3: Release and Hosting
 

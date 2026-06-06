@@ -17,9 +17,9 @@ Instructions for Codex and other AI contributors working on Iris.
 
 - Project name: Iris.
 - Repository owner: `khaledyusuf44`.
-- Current phase: bootstrap.
-- Implementation stack: pending.
-- Source files: pending handoff.
+- Current phase: Day 1 constraint-engine validation.
+- Implementation stack: Python validation engine now; Gradio UI later.
+- Source files: `iris/` package and root task docs.
 
 ## Expected Workflow
 
@@ -40,6 +40,11 @@ When source files arrive:
 - Update `docs/ARCHITECTURE.md` with the actual modules and data flow.
 - Add CI around real project checks.
 - Keep secrets in local environment files, not committed files.
+
+## Iris Product Rule
+
+The model applies pressure; it does not solve the user's idea. Any output that
+becomes a finished idea, plan, or generic advice is a product bug.
 
 ## Commit Style
 

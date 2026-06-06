@@ -2,13 +2,14 @@
 
 ## Current State
 
-Iris has not selected a final implementation stack yet. This document will track
-the real architecture as source files are added.
+Iris is validating the constraint engine before the UI. The current codebase is a
+small Python package that calls an OpenAI-compatible MiniCPM endpoint and prints
+full idea spirals from a CLI harness.
 
 ## Initial Structure
 
 ```text
-src/      Application source files
+iris/     Constraint engine package
 tests/    Automated tests
 docs/     Project documentation and decisions
 scripts/  Local maintenance and validation scripts
@@ -21,6 +22,27 @@ scripts/  Local maintenance and validation scripts
 - Separate source code, tests, scripts, and docs.
 - Document runtime requirements as soon as they are known.
 - Keep configuration explicit and keep secrets out of Git.
+
+## Engine Flow
+
+```text
+idea + prior constraints + ring depth
+  -> pressure prompt
+  -> OpenAI-compatible chat completions endpoint
+  -> safe JSON parser
+  -> one pressure + why_it_bites
+  -> repeat until center
+  -> distill prompt
+  -> one next_step
+```
+
+## Configuration
+
+- `IRIS_API_BASE_URL`: OpenAI-compatible base URL ending in `/v1`.
+- `IRIS_MODEL`: model ID served by the endpoint.
+- `IRIS_API_KEY`: local-only credential, never committed.
+- `IRIS_TIMEOUT_SECONDS`: optional request timeout.
+- `IRIS_MAX_TOKENS`: optional response token limit.
 
 ## Source Intake Checklist
 

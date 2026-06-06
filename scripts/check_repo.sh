@@ -2,12 +2,21 @@
 set -euo pipefail
 
 required_files=(
+  ".env.example"
   "README.md"
   "CONTRIBUTING.md"
   "AGENTS.md"
+  "01-PROJECT-BRIEF.md"
+  "02-ENGINE-SPEC.md"
+  "03-TASK-DAY1.md"
   "docs/PROJECT_BRIEF.md"
   "docs/ROADMAP.md"
   "docs/ARCHITECTURE.md"
+  "requirements.txt"
+  "iris/__init__.py"
+  "iris/engine.py"
+  "iris/cli.py"
+  "tests/test_engine.py"
 )
 
 missing=0
@@ -23,7 +32,7 @@ if [[ "$missing" -ne 0 ]]; then
   exit 1
 fi
 
-if git ls-files | grep -E '(^|/)\.env($|\.local$|\.production$|\.development$|\.test$)' >/dev/null; then
+if git ls-files | grep -E '(^|/)\.env($|[^/])' | grep -v -E '(^|/)\.env\.example$' >/dev/null; then
   echo "tracked environment secret file detected"
   exit 1
 fi
