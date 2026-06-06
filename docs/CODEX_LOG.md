@@ -65,7 +65,7 @@ Validation:
 - Quality gate: failed. Local reasoning output still repeated generic pressures
   and gave implementation advice at the center.
 
-### 0d515bf - Harden prompt retry validation
+### 583618e - Harden prompt retry validation
 
 - Tightened the pressure prompt to require idea-grounded questions and removed
   examples that MiniCPM4.1 copied verbatim.
