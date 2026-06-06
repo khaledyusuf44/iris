@@ -64,3 +64,21 @@ Validation:
 - `./scripts/check_repo.sh` passed.
 - Quality gate: failed. Local reasoning output still repeated generic pressures
   and gave implementation advice at the center.
+
+### 0d515bf - Harden prompt retry validation
+
+- Tightened the pressure prompt to require idea-grounded questions and removed
+  examples that MiniCPM4.1 copied verbatim.
+- Added retry feedback for generic, repeated, unrelated, and solution-shaped
+  pressure outputs.
+- Added a balanced first-JSON-object parser so multi-object model streams do not
+  become one malformed field.
+- Added stricter center-step quality checks.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests` passed.
+- `./scripts/check_repo.sh` passed.
+- Quality gate: failed. Day 1c output was grounded but still repeated the same
+  pressure across rings and returned center steps like `Interview`.

@@ -33,6 +33,12 @@ class ParserTests(unittest.TestCase):
         )
         self.assertEqual(data["why_it_bites"], "Vague fails.")
 
+    def test_parses_first_json_object_only(self) -> None:
+        data = parse_json_object(
+            '{"pressure":"First?", "why_it_bites":"First bite."}\n{"pressure":"Second?", "why_it_bites":"Second bite."}'
+        )
+        self.assertEqual(data["pressure"], "First?")
+
     def test_parses_python_literal_dict(self) -> None:
         data = parse_json_object(
             '{"pressure":("Be precise."), "why_it_bites":("Vague fails.")}'
@@ -69,7 +75,7 @@ class ParserTests(unittest.TestCase):
 class EngineTests(unittest.TestCase):
     def test_pressure_appends_thinking_toggle_when_enabled(self) -> None:
         client = FakeClient(
-            ['{"pressure": "Name who actually uses it.", "why_it_bites": "The buyer and user may differ."}']
+            ['{"pressure": "Who actually uses it?", "why_it_bites": "The buyer and user may differ."}']
         )
         engine = IrisEngine(
             client,
@@ -87,7 +93,7 @@ class EngineTests(unittest.TestCase):
 
     def test_pressure_omits_thinking_toggle_when_disabled(self) -> None:
         client = FakeClient(
-            ['{"pressure": "Name who actually uses it.", "why_it_bites": "The buyer and user may differ."}']
+            ['{"pressure": "Who actually uses it?", "why_it_bites": "The buyer and user may differ."}']
         )
         engine = IrisEngine(
             client,
@@ -106,7 +112,7 @@ class EngineTests(unittest.TestCase):
     def test_pressure_parses_required_fields(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"pressure": "What makes the elder open it?", "why_it_bites": "The reminder fails if the app is ignored."}']
+                ['{"pressure": "What makes elderly people open it?", "why_it_bites": "The reminder fails if the app is ignored."}']
             )
         )
         result = engine.pressure(
@@ -115,51 +121,129 @@ class EngineTests(unittest.TestCase):
             1,
             4,
         )
-        self.assertIn("elder", result.pressure)
+        self.assertIn("elderly", result.pressure)
         self.assertIn("ignored", result.why_it_bites)
 
     def test_pressure_accepts_key_aliases(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"constraint": "Name who actually uses it.", "why_it_bits": "The buyer and user may differ."}']
+                ['{"constraint": "Who actually uses it?", "why_it_bits": "The buyer and user may differ."}']
             )
         )
         result = engine.pressure("Idea", [], 1, 4)
-        self.assertEqual(result.pressure, "Name who actually uses it.")
+        self.assertEqual(result.pressure, "Who actually uses it?")
         self.assertEqual(result.why_it_bites, "The buyer and user may differ.")
 
     def test_pressure_splits_inline_why(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"pressure": "Name who actually uses it. Why it bites: The buyer and user may differ."}']
+                ['{"pressure": "Who actually uses it? Why it bites: The buyer and user may differ."}']
             )
         )
         result = engine.pressure("Idea", [], 1, 4)
-        self.assertEqual(result.pressure, "Name who actually uses it.")
+        self.assertEqual(result.pressure, "Who actually uses it?")
         self.assertEqual(result.why_it_bites, "The buyer and user may differ.")
 
     def test_pressure_splits_inline_this_bites(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"pressure": "Name who actually uses it. This bites because the buyer and user may differ."}']
+                ['{"pressure": "Who actually uses it? This bites because the buyer and user may differ."}']
             )
         )
         result = engine.pressure("Idea", [], 1, 4)
-        self.assertEqual(result.pressure, "Name who actually uses it.")
+        self.assertEqual(result.pressure, "Who actually uses it?")
         self.assertEqual(result.why_it_bites, "the buyer and user may differ.")
 
+    def test_pressure_retries_generic_output(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": "The app needs user adoption.", "why_it_bites": "People may not use it."}',
+                '{"pressure": "Which neighbor is liable when a borrowed tool breaks mid-project?", "why_it_bites": "The trust problem appears before marketplace supply matters."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.pressure("A marketplace for renting tools between neighbors.", [], 1, 4)
+
+        self.assertEqual(
+            result.pressure,
+            "Which neighbor is liable when a borrowed tool breaks mid-project?",
+        )
+        self.assertEqual(len(client.messages), 2)
+
+    def test_pressure_retries_unrelated_output(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": "When the calendar alert fires during school pickup, what makes the parent stop?", "why_it_bites": "It is unrelated."}',
+                '{"pressure": "What happens when lecture notes contain half-finished diagrams that cannot become clean flashcards?", "why_it_bites": "The tool fails if real notes are messier than the conversion assumes."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.pressure(
+            "A study tool that turns lecture notes into flashcards.", [], 1, 4
+        )
+
+        self.assertIn("lecture notes", result.pressure)
+        self.assertEqual(len(client.messages), 2)
+
     def test_distill_parses_next_step(self) -> None:
-        engine = IrisEngine(FakeClient(['{"next_step": "Call one caregiver this week."}']))
+        engine = IrisEngine(
+            FakeClient(
+                ['{"next_step": "Call one caregiver this week about missed doses."}']
+            )
+        )
         result = engine.distill("Medication reminder app.", ["pressure"])
-        self.assertEqual(result.next_step, "Call one caregiver this week.")
+        self.assertEqual(result.next_step, "Call one caregiver this week about missed doses.")
 
     def test_distill_accepts_key_alias(self) -> None:
-        engine = IrisEngine(FakeClient(['{"next step": "Call one caregiver this week."}']))
+        engine = IrisEngine(
+            FakeClient(['{"center": "Call one caregiver this week about missed doses."}'])
+        )
         result = engine.distill("Medication reminder app.", ["pressure"])
-        self.assertEqual(result.next_step, "Call one caregiver this week.")
+        self.assertEqual(result.next_step, "Call one caregiver this week about missed doses.")
+
+    def test_distill_retries_implementation_output(self) -> None:
+        client = FakeClient(
+            [
+                '{"next_step": "Implement a better reminder flow."}',
+                '{"next_step": "Ask one caregiver this week how missed doses actually happen."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.distill("Medication reminder app.", ["pressure"])
+
+        self.assertEqual(
+            result.next_step,
+            "Ask one caregiver this week how missed doses actually happen.",
+        )
+        self.assertEqual(len(client.messages), 2)
+
+    def test_distill_retries_too_short_output(self) -> None:
+        client = FakeClient(
+            [
+                '{"next_step": "Call"}',
+                '{"next_step": "Call one caregiver this week about missed doses."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.distill("Medication reminder app.", ["pressure"])
+
+        self.assertEqual(result.next_step, "Call one caregiver this week about missed doses.")
+        self.assertEqual(len(client.messages), 2)
 
     def test_rejects_missing_pressure_field(self) -> None:
-        engine = IrisEngine(FakeClient(['{"why_it_bites": "No pressure."}']))
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    '{"why_it_bites": "No pressure."}',
+                    '{"why_it_bites": "No pressure."}',
+                    '{"why_it_bites": "No pressure."}',
+                ]
+            )
+        )
         with self.assertRaises(IrisResponseError):
             engine.pressure("Idea", [], 1, 4)
 

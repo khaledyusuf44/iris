@@ -23,13 +23,16 @@ def parse_json_object(text: str) -> dict[str, Any]:
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError:
-        parsed = _parse_repaired_json(cleaned)
-        if parsed is None:
-            parsed = _parse_unkeyed_bite(cleaned)
+        try:
+            parsed = _parse_embedded_object(cleaned)
+        except IrisResponseError:
+            parsed = _parse_repaired_json(cleaned)
             if parsed is None:
-                parsed = _parse_python_literal(cleaned)
+                parsed = _parse_unkeyed_bite(cleaned)
                 if parsed is None:
-                    parsed = _parse_embedded_object(cleaned)
+                    parsed = _parse_python_literal(cleaned)
+                    if parsed is None:
+                        raise
 
     if not isinstance(parsed, dict):
         raise IrisResponseError(f"Expected a JSON object, got: {type(parsed).__name__}")
@@ -44,12 +47,10 @@ def require_string(data: dict[str, Any], key: str, aliases: tuple[str, ...] = ()
 
 
 def _parse_embedded_object(text: str) -> dict[str, Any]:
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    candidate = _first_json_object(text)
+    if candidate is None:
         raise IrisResponseError(f"Model did not return JSON: {text[:500]}")
 
-    candidate = text[start : end + 1]
     try:
         parsed = json.loads(candidate)
     except json.JSONDecodeError as exc:
@@ -63,6 +64,38 @@ def _parse_embedded_object(text: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise IrisResponseError(f"Expected a JSON object, got: {type(parsed).__name__}")
     return parsed
+
+
+def _first_json_object(text: str) -> str | None:
+    start = text.find("{")
+    if start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+
+    return None
 
 
 def _parse_python_literal(text: str) -> dict[str, Any] | None:
