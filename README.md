@@ -23,6 +23,7 @@ not pass the Iris quality gate yet. See
 AGENTS.md                 AI/core contributor operating notes
 CONTRIBUTING.md           Human contributor workflow
 docs/                     Project planning, roadmap, and architecture notes
+docs/CODEX_LOG.md         Codex work log and validation history
 iris/                     Python package for the constraint engine
 scripts/check_repo.sh     Lightweight repository health check
 tests/                    Tests, once added
@@ -78,6 +79,7 @@ python3 -m iris.cli "A tool that helps new founders pick their first customer"
 - Add Python engine code under `iris/`.
 - Add tests under `tests/`.
 - Keep secrets out of Git. Use `.env.example` for documented configuration.
+- Record substantive Codex work in `docs/CODEX_LOG.md`.
 - Update `docs/ARCHITECTURE.md` when the project structure or runtime changes.
 
 ## Next Inputs Needed

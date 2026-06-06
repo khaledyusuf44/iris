@@ -29,6 +29,12 @@ Run this before committing:
 After the source stack is added, this section should include the real formatter,
 linter, test, and build commands.
 
+## Codex Contributions
+
+Codex is the core AI contributor for this project. Substantive Codex work should
+also update `docs/CODEX_LOG.md` so the repo keeps a readable build and validation
+history alongside Git commits.
+
 ## Source File Handoff
 
 When adding starter files or copied project files:

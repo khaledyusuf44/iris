@@ -17,9 +17,10 @@ Instructions for Codex and other AI contributors working on Iris.
 
 - Project name: Iris.
 - Repository owner: `khaledyusuf44`.
+- Core AI contributor: Codex.
 - Current phase: Day 1 constraint-engine validation.
 - Implementation stack: Python validation engine now; Gradio UI later.
-- Source files: `iris/` package and root task docs.
+- Source files: `iris/` package. Local task prompts stay untracked.
 
 ## Expected Workflow
 
@@ -27,8 +28,22 @@ Instructions for Codex and other AI contributors working on Iris.
 2. Read `README.md`, `CONTRIBUTING.md`, and relevant files in `docs/`.
 3. Make the smallest useful change that moves the project forward.
 4. Add or update tests when behavior changes.
-5. Run repository checks.
-6. Commit only intentional files.
+5. Update `docs/CODEX_LOG.md` for substantive work.
+6. Run repository checks.
+7. Commit only intentional files.
+
+## Codex Logging
+
+For each substantive Codex change, add a short entry to `docs/CODEX_LOG.md` with:
+
+- Date.
+- Commit hash, once available.
+- What changed.
+- Validation or test result.
+- Whether the Iris quality gate passed or failed.
+
+Do not put secrets, private prompts, local-only handoff notes, or raw API keys in
+the Codex log.
 
 ## Source File Intake
 
