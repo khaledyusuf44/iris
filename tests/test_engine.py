@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from iris.config import IrisConfig
 from iris.engine import IrisEngine
 from iris.errors import IrisResponseError
 from iris.parser import parse_json_object
@@ -66,6 +67,42 @@ class ParserTests(unittest.TestCase):
 
 
 class EngineTests(unittest.TestCase):
+    def test_pressure_appends_thinking_toggle_when_enabled(self) -> None:
+        client = FakeClient(
+            ['{"pressure": "Name who actually uses it.", "why_it_bites": "The buyer and user may differ."}']
+        )
+        engine = IrisEngine(
+            client,
+            config=IrisConfig(
+                api_base_url="http://localhost:11434/v1",
+                model="openbmb/minicpm4.1",
+                api_key="not-needed",
+                enable_thinking=True,
+            ),
+        )
+
+        engine.pressure("Idea", [], 1, 4)
+
+        self.assertTrue(client.messages[0][1]["content"].rstrip().endswith("/think"))
+
+    def test_pressure_omits_thinking_toggle_when_disabled(self) -> None:
+        client = FakeClient(
+            ['{"pressure": "Name who actually uses it.", "why_it_bites": "The buyer and user may differ."}']
+        )
+        engine = IrisEngine(
+            client,
+            config=IrisConfig(
+                api_base_url="http://localhost:11434/v1",
+                model="openbmb/minicpm4.1",
+                api_key="not-needed",
+                enable_thinking=False,
+            ),
+        )
+
+        engine.pressure("Idea", [], 1, 4)
+
+        self.assertFalse(client.messages[0][1]["content"].rstrip().endswith("/think"))
+
     def test_pressure_parses_required_fields(self) -> None:
         engine = IrisEngine(
             FakeClient(
@@ -84,7 +121,7 @@ class EngineTests(unittest.TestCase):
     def test_pressure_accepts_key_aliases(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"constraint": "Name who actually uses it.", "why it bites": "The buyer and user may differ."}']
+                ['{"constraint": "Name who actually uses it.", "why_it_bits": "The buyer and user may differ."}']
             )
         )
         result = engine.pressure("Idea", [], 1, 4)

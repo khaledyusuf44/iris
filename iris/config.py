@@ -6,11 +6,12 @@ from dataclasses import dataclass
 import os
 
 
-DEFAULT_API_BASE_URL = "https://api.modelbest.cn/v1"
-DEFAULT_MODEL = "MiniCPM-V-4.6-Thinking"
-DEFAULT_TIMEOUT_SECONDS = 60.0
+DEFAULT_API_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_MODEL = "openbmb/minicpm4.1"
+DEFAULT_TIMEOUT_SECONDS = 180.0
 DEFAULT_MAX_TOKENS = 1000
-DEFAULT_TEMPERATURE = 0.25
+DEFAULT_TEMPERATURE = 0.0
+DEFAULT_ENABLE_THINKING = True
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class IrisConfig:
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     max_tokens: int = DEFAULT_MAX_TOKENS
     temperature: float = DEFAULT_TEMPERATURE
+    enable_thinking: bool = DEFAULT_ENABLE_THINKING
 
     @classmethod
     def from_env(cls) -> "IrisConfig":
@@ -31,6 +33,7 @@ class IrisConfig:
             timeout_seconds=_float_env("IRIS_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS),
             max_tokens=_int_env("IRIS_MAX_TOKENS", DEFAULT_MAX_TOKENS),
             temperature=_float_env("IRIS_TEMPERATURE", DEFAULT_TEMPERATURE),
+            enable_thinking=_bool_env("IRIS_ENABLE_THINKING", DEFAULT_ENABLE_THINKING),
         )
 
 
@@ -52,3 +55,15 @@ def _int_env(name: str, default: int) -> int:
         return int(value)
     except ValueError as exc:
         raise ValueError(f"{name} must be an integer") from exc
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")

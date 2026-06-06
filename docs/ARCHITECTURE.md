@@ -43,6 +43,8 @@ idea + prior constraints + ring depth
 - `IRIS_API_KEY`: local-only credential, never committed.
 - `IRIS_TIMEOUT_SECONDS`: optional request timeout.
 - `IRIS_MAX_TOKENS`: optional response token limit.
+- `IRIS_ENABLE_THINKING`: appends `/think` to MiniCPM4.1 prompts for reasoning
+  mode when supported by the backend.
 
 ## Source Intake Checklist
 

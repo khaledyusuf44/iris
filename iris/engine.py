@@ -40,8 +40,13 @@ class DistillResult:
 
 
 class IrisEngine:
-    def __init__(self, client: CompletionClient | None = None):
-        self.client = client or ChatCompletionsClient(IrisConfig.from_env())
+    def __init__(
+        self,
+        client: CompletionClient | None = None,
+        config: IrisConfig | None = None,
+    ):
+        self.config = config or IrisConfig.from_env()
+        self.client = client or ChatCompletionsClient(self.config)
 
     def pressure(
         self, idea: str, prior_constraints: list[str], depth: int, total: int
@@ -59,6 +64,7 @@ class IrisEngine:
                         prior_constraints=prior_constraints,
                         depth=depth,
                         total=total,
+                        enable_thinking=self.config.enable_thinking,
                     ),
                 },
             ]
@@ -74,6 +80,8 @@ class IrisEngine:
                     "why_it_bites",
                     aliases=(
                         "why it bites",
+                        "why_it_bits",
+                        "why it bits",
                         "why this bites",
                         "why it matters",
                         "why",
@@ -103,6 +111,7 @@ class IrisEngine:
                     "content": distill_user_prompt(
                         idea=idea,
                         all_constraints=all_constraints,
+                        enable_thinking=self.config.enable_thinking,
                     ),
                 },
             ]

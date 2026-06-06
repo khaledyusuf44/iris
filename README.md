@@ -6,9 +6,9 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 1 is focused only on proving the constraint engine.
-Latest validation note: MiniCPM-V 4.6 Instruct runs end to end, but the first
-quality pass is still too generic/repetitive. See
-`docs/validation/day1-minicpm-v46-instruct.md`.
+Latest validation note: local Ollama MiniCPM4.1-8B runs end to end, but does
+not pass the Iris quality gate yet. See
+`docs/validation/day1b-minicpm41-8b-ollama.md`.
 
 ## Current Status
 
@@ -47,14 +47,16 @@ Iris calls an OpenAI-compatible `/v1/chat/completions` endpoint. Keep real API
 keys in your local environment only.
 
 ```bash
-cp .env.example .env
-export IRIS_API_BASE_URL="https://api.modelbest.cn/v1"
-export IRIS_MODEL="MiniCPM-V-4.6-Thinking"
-export IRIS_API_KEY="your-api-key"
+ollama pull openbmb/minicpm4.1
+export IRIS_API_BASE_URL="http://localhost:11434/v1"
+export IRIS_MODEL="openbmb/minicpm4.1"
+export IRIS_API_KEY="not-needed"
+export IRIS_ENABLE_THINKING=1
 ```
 
-For local vLLM or SGLang, point `IRIS_API_BASE_URL` at the local `/v1` endpoint
-and set `IRIS_MODEL` to the served model name.
+For MLX, vLLM, SGLang, or hosted fallback, point `IRIS_API_BASE_URL` at that
+server's OpenAI-compatible `/v1` endpoint and set `IRIS_MODEL` to the served
+model name.
 
 ## Validate the Spiral
 

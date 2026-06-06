@@ -41,11 +41,15 @@ DEPTH_LENSES = {
 
 
 def pressure_user_prompt(
-    idea: str, prior_constraints: list[str], depth: int, total: int
+    idea: str,
+    prior_constraints: list[str],
+    depth: int,
+    total: int,
+    enable_thinking: bool = False,
 ) -> str:
     prior = "\n".join(f"- {item}" for item in prior_constraints) or "- None yet"
     lens = DEPTH_LENSES.get(depth, "the deepest unresolved assumption")
-    return f"""Idea:
+    prompt = f"""Idea:
 {idea}
 
 Current ring:
@@ -70,14 +74,24 @@ Bad output examples:
 
 Return exactly one new pressure as valid JSON with pressure and why_it_bites.
 Use concrete nouns from the idea. Do not repeat prior pressure. Do not solve the idea."""
+    return _with_thinking_toggle(prompt, enable_thinking)
 
 
-def distill_user_prompt(idea: str, all_constraints: list[str]) -> str:
+def distill_user_prompt(
+    idea: str, all_constraints: list[str], enable_thinking: bool = False
+) -> str:
     constraints = "\n".join(f"- {item}" for item in all_constraints) or "- None"
-    return f"""Idea:
+    prompt = f"""Idea:
 {idea}
 
 Pressure applied through the spiral:
 {constraints}
 
 Return the center point as valid JSON with next_step."""
+    return _with_thinking_toggle(prompt, enable_thinking)
+
+
+def _with_thinking_toggle(prompt: str, enable_thinking: bool) -> str:
+    if not enable_thinking:
+        return prompt
+    return f"{prompt}\n\n/think"
