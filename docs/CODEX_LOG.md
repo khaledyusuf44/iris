@@ -82,3 +82,20 @@ Validation:
 - `./scripts/check_repo.sh` passed.
 - Quality gate: failed. Day 1c output was grounded but still repeated the same
   pressure across rings and returned center steps like `Interview`.
+
+### 776e453 - Add deterministic pressure rings
+
+- Replaced loose depth lenses with deterministic ring profiles for Reality
+  Contact, Real Actor, Existing Alternative, and Problem Truth.
+- Added retry feedback when model pressure does not start with the required
+  ring opening.
+- Documented the Day 1d local MiniCPM4.1 validation run.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests` passed.
+- `./scripts/check_repo.sh` passed.
+- Quality gate: failed. Ring separation improved, but center outputs still
+  collapsed to `Interview` and several `why_it_bites` fields drifted into
+  advice.
