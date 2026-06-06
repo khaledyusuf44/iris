@@ -12,6 +12,11 @@ Thumbs.db
 !.env.example
 .envrc
 
+# Local handoff notes and task prompts
+01-PROJECT-BRIEF.md
+02-ENGINE-SPEC.md
+03-TASK-DAY1.md
+
 # Logs
 *.log
 npm-debug.log*

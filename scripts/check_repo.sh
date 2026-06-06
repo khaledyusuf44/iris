@@ -6,9 +6,6 @@ required_files=(
   "README.md"
   "CONTRIBUTING.md"
   "AGENTS.md"
-  "01-PROJECT-BRIEF.md"
-  "02-ENGINE-SPEC.md"
-  "03-TASK-DAY1.md"
   "docs/PROJECT_BRIEF.md"
   "docs/ROADMAP.md"
   "docs/ARCHITECTURE.md"
@@ -34,6 +31,11 @@ fi
 
 if git ls-files | grep -E '(^|/)\.env($|[^/])' | grep -v -E '(^|/)\.env\.example$' >/dev/null; then
   echo "tracked environment secret file detected"
+  exit 1
+fi
+
+if git ls-files | grep -E '(^|/)0[1-9]-.+\.md$' >/dev/null; then
+  echo "tracked local handoff/task markdown detected"
   exit 1
 fi
 

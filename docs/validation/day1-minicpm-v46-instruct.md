@@ -38,7 +38,7 @@ Not passed yet.
 The harness runs end to end, but MiniCPM-V 4.6 Instruct is still too repetitive
 and abstract for the Iris quality bar. It produces some idea-specific nouns, but
 the pressure often repeats across depths and does not reliably escalate into the
-sharp, reality-contact constraints described in `02-ENGINE-SPEC.md`.
+sharp, reality-contact constraints required for Iris.
 
 Recommended next move: test a stronger OpenBMB model endpoint or a local
 MiniCPM 4/4.1 reasoning deployment with a stricter JSON mode, then rerun this

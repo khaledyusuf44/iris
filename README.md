@@ -20,9 +20,6 @@ quality pass is still too generic/repetitive. See
 ## Repo Layout
 
 ```text
-01-PROJECT-BRIEF.md       Project brief and product philosophy
-02-ENGINE-SPEC.md         Constraint-engine model and prompt spec
-03-TASK-DAY1.md           Current validation task
 AGENTS.md                 AI/core contributor operating notes
 CONTRIBUTING.md           Human contributor workflow
 docs/                     Project planning, roadmap, and architecture notes
@@ -30,6 +27,8 @@ iris/                     Python package for the constraint engine
 scripts/check_repo.sh     Lightweight repository health check
 tests/                    Tests, once added
 ```
+
+Local task prompts and strategy notes should stay untracked.
 
 ## Getting Started
 
