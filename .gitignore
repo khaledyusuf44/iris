@@ -1,0 +1,44 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependencies
+node_modules/
+vendor/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Build and cache output
+dist/
+build/
+coverage/
+.cache/
+.parcel-cache/
+.next/
+out/
+target/
+tmp/
+temp/
+
+# Generated archives
+*.zip
+*.tar
+*.tar.gz
