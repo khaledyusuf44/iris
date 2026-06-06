@@ -6,9 +6,9 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 1 is focused only on proving the constraint engine.
-Latest validation note: Day 1c prompt/retry hardening improved grounding but
-still did not pass the Iris quality gate. See
-`docs/validation/day1c-prompt-retry-minicpm41.md`.
+Latest validation note: Day 1d deterministic ring profiles improved ring
+separation but still did not pass the Iris quality gate. See
+`docs/validation/day1d-deterministic-rings-minicpm41.md`.
 
 ## Current Status
 

@@ -14,6 +14,7 @@ from iris.parser import parse_json_object, require_string
 from iris.prompts import (
     DISTILL_SYSTEM,
     PRESSURE_SYSTEM,
+    RING_PROFILES,
     distill_user_prompt,
     pressure_user_prompt,
 )
@@ -120,7 +121,7 @@ class IrisEngine:
                 continue
 
             quality_feedback = _pressure_quality_feedback(
-                result, prior_constraints, idea
+                result, prior_constraints, idea, depth
             )
             if quality_feedback is None:
                 return result
@@ -290,14 +291,23 @@ def _split_inline_why(pressure_text: str) -> tuple[str, str]:
 
 
 def _pressure_quality_feedback(
-    result: PressureResult, prior_constraints: list[str], idea: str
+    result: PressureResult, prior_constraints: list[str], idea: str, depth: int
 ) -> str | None:
     pressure = result.pressure.strip()
     normalized = _normalize(pressure)
     idea_keywords = _keywords(idea)
+    profile = RING_PROFILES.get(depth)
 
     if "?" not in pressure:
         return "Pressure must be a hard question ending with a question mark."
+
+    if profile:
+        required_opening = str(profile["required_opening"])
+        if not normalized.startswith(required_opening.lower()):
+            return (
+                f'Ring {depth} pressure must start exactly with "{required_opening}" '
+                f'to satisfy the {profile["name"]} angle.'
+            )
 
     if idea_keywords and not _has_keyword_match(normalized, idea_keywords):
         return (

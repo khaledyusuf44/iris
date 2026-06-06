@@ -75,7 +75,7 @@ class ParserTests(unittest.TestCase):
 class EngineTests(unittest.TestCase):
     def test_pressure_appends_thinking_toggle_when_enabled(self) -> None:
         client = FakeClient(
-            ['{"pressure": "Who actually uses it?", "why_it_bites": "The buyer and user may differ."}']
+            ['{"pressure": "What happens when someone tries the idea?", "why_it_bites": "The first contact may fail."}']
         )
         engine = IrisEngine(
             client,
@@ -93,7 +93,7 @@ class EngineTests(unittest.TestCase):
 
     def test_pressure_omits_thinking_toggle_when_disabled(self) -> None:
         client = FakeClient(
-            ['{"pressure": "Who actually uses it?", "why_it_bites": "The buyer and user may differ."}']
+            ['{"pressure": "What happens when someone tries the idea?", "why_it_bites": "The first contact may fail."}']
         )
         engine = IrisEngine(
             client,
@@ -112,7 +112,7 @@ class EngineTests(unittest.TestCase):
     def test_pressure_parses_required_fields(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"pressure": "What makes elderly people open it?", "why_it_bites": "The reminder fails if the app is ignored."}']
+                ['{"pressure": "What happens when elderly people ignore the reminder?", "why_it_bites": "The reminder fails if the app is ignored."}']
             )
         )
         result = engine.pressure(
@@ -127,38 +127,38 @@ class EngineTests(unittest.TestCase):
     def test_pressure_accepts_key_aliases(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"constraint": "Who actually uses it?", "why_it_bits": "The buyer and user may differ."}']
+                ['{"constraint": "What happens when someone tries the idea?", "why_it_bits": "The buyer and user may differ."}']
             )
         )
         result = engine.pressure("Idea", [], 1, 4)
-        self.assertEqual(result.pressure, "Who actually uses it?")
+        self.assertEqual(result.pressure, "What happens when someone tries the idea?")
         self.assertEqual(result.why_it_bites, "The buyer and user may differ.")
 
     def test_pressure_splits_inline_why(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"pressure": "Who actually uses it? Why it bites: The buyer and user may differ."}']
+                ['{"pressure": "What happens when someone tries the idea? Why it bites: The buyer and user may differ."}']
             )
         )
         result = engine.pressure("Idea", [], 1, 4)
-        self.assertEqual(result.pressure, "Who actually uses it?")
+        self.assertEqual(result.pressure, "What happens when someone tries the idea?")
         self.assertEqual(result.why_it_bites, "The buyer and user may differ.")
 
     def test_pressure_splits_inline_this_bites(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"pressure": "Who actually uses it? This bites because the buyer and user may differ."}']
+                ['{"pressure": "What happens when someone tries the idea? This bites because the buyer and user may differ."}']
             )
         )
         result = engine.pressure("Idea", [], 1, 4)
-        self.assertEqual(result.pressure, "Who actually uses it?")
+        self.assertEqual(result.pressure, "What happens when someone tries the idea?")
         self.assertEqual(result.why_it_bites, "the buyer and user may differ.")
 
     def test_pressure_retries_generic_output(self) -> None:
         client = FakeClient(
             [
                 '{"pressure": "The app needs user adoption.", "why_it_bites": "People may not use it."}',
-                '{"pressure": "Which neighbor is liable when a borrowed tool breaks mid-project?", "why_it_bites": "The trust problem appears before marketplace supply matters."}',
+                '{"pressure": "What happens when a neighbor returns a borrowed tool broken?", "why_it_bites": "The trust problem appears before marketplace supply matters."}',
             ]
         )
         engine = IrisEngine(client)
@@ -167,7 +167,7 @@ class EngineTests(unittest.TestCase):
 
         self.assertEqual(
             result.pressure,
-            "Which neighbor is liable when a borrowed tool breaks mid-project?",
+            "What happens when a neighbor returns a borrowed tool broken?",
         )
         self.assertEqual(len(client.messages), 2)
 
@@ -185,6 +185,22 @@ class EngineTests(unittest.TestCase):
         )
 
         self.assertIn("lecture notes", result.pressure)
+        self.assertEqual(len(client.messages), 2)
+
+    def test_pressure_retries_wrong_ring_opening(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": "Why would a student use this?", "why_it_bites": "Wrong ring shape."}',
+                '{"pressure": "Who decides whether lecture notes become flashcards before the exam?", "why_it_bites": "The visible student may not control the study workflow."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.pressure(
+            "A study tool that turns lecture notes into flashcards.", [], 2, 4
+        )
+
+        self.assertTrue(result.pressure.startswith("Who"))
         self.assertEqual(len(client.messages), 2)
 
     def test_distill_parses_next_step(self) -> None:

@@ -33,18 +33,31 @@ Hard rules:
 The JSON object must have exactly this one string key:
 {"next_step": "..."}"""
 
-DEPTH_LENSES = {
-    1: "first contact: what concrete situation makes this fail before value appears?",
-    2: "real actor: who chooses, pays, sets up, operates, refuses, or blocks this?",
-    3: "alternative: what named current behavior or tool already solves enough of this?",
-    4: "problem truth: what if the stated problem is only a symptom of something else?",
-}
-
-RING_CONTRACTS = {
-    1: "Attack the first real-world moment where the idea touches a person, device, habit, place, or routine.",
-    2: "Attack the actor assumption: the visible user may not be the buyer, operator, decision-maker, or blocker.",
-    3: "Attack differentiation by naming a concrete alternative behavior, tool, or social workaround.",
-    4: "Attack problem validity: maybe the named problem is refusal, trust, timing, social risk, or context instead.",
+RING_PROFILES = {
+    1: {
+        "name": "Reality Contact",
+        "lens": "first contact: what concrete situation makes this fail before value appears?",
+        "contract": "Attack the first real-world moment where the idea touches a person, device, habit, place, or routine.",
+        "required_opening": "What happens when",
+    },
+    2: {
+        "name": "Real Actor",
+        "lens": "real actor: who chooses, pays, sets up, operates, refuses, or blocks this?",
+        "contract": "Attack the actor assumption: the visible user may not be the buyer, operator, decision-maker, or blocker.",
+        "required_opening": "Who",
+    },
+    3: {
+        "name": "Existing Alternative",
+        "lens": "alternative: what named current behavior or tool already solves enough of this?",
+        "contract": "Attack differentiation by naming a concrete alternative behavior, tool, or social workaround.",
+        "required_opening": "What do people use today when",
+    },
+    4: {
+        "name": "Problem Truth",
+        "lens": "problem truth: what if the stated problem is only a symptom of something else?",
+        "contract": "Attack problem validity: maybe the named problem is refusal, trust, timing, social risk, or context instead.",
+        "required_opening": "What if the real problem is not",
+    },
 }
 
 
@@ -57,8 +70,15 @@ def pressure_user_prompt(
     rejection_feedback: str | None = None,
 ) -> str:
     prior = "\n".join(f"- {item}" for item in prior_constraints) or "- None yet"
-    lens = DEPTH_LENSES.get(depth, "the deepest unresolved assumption")
-    contract = RING_CONTRACTS.get(depth, "Attack the deepest unresolved assumption.")
+    profile = RING_PROFILES.get(
+        depth,
+        {
+            "name": "Deep Assumption",
+            "lens": "the deepest unresolved assumption",
+            "contract": "Attack the deepest unresolved assumption.",
+            "required_opening": "What if",
+        },
+    )
     rejection = (
         f"\nPrevious output was rejected:\n{rejection_feedback}\n"
         if rejection_feedback
@@ -68,25 +88,26 @@ def pressure_user_prompt(
 {idea}
 
 Current ring:
-{depth} of {total}
+{depth} of {total} - {profile["name"]}
 
 Depth lens:
-{lens}
+{profile["lens"]}
 
 This ring's job:
-{contract}
+{profile["contract"]}
 
 Prior pressure already applied:
 {prior}
 {rejection}
 Required style:
-- Ask one hard question.
+- Ask one hard question that starts exactly with: {profile["required_opening"]}
 - Use concrete nouns from the idea.
 - Name a real actor, object, habit, routine, risk, or alternative.
 - Do not say "the app needs", "the app must", "user adoption", "market fit",
   "user-friendly", "seamless", "low adoption", or "existing workarounds".
 - Do not propose a feature, implementation, strategy, or solution.
 - Do not invent actors or situations that are not grounded in the idea.
+- Do not reuse the same angle as any prior pressure.
 
 Return exactly one new pressure as valid JSON with pressure and why_it_bites."""
     return _with_thinking_toggle(prompt, enable_thinking)
