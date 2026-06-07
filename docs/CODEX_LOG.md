@@ -205,3 +205,22 @@ Validation:
 - `./scripts/check_repo.sh` passed.
 - Browser smoke passed at `http://127.0.0.1:7860`: desktop `1440x900` and
   mobile `390x844` rendered full-bleed with no horizontal overflow.
+
+### ea9a3f3 - Wire Stage 2 spatial UI flow
+
+- Added real Gradio controls over the Stitch-style nucleus and electrons so the
+  spatial UI is clickable instead of static.
+- Added the idea modal, Proceed flow, server-side MiniCPM pressure calls, latest
+  electron descent, and R4 center distillation.
+- Kept the validated engine unchanged and added a UI session/view bridge test.
+- Documented the Stage 2 core-flow validation run.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860`: nucleus opened the modal,
+  Proceed returned R1 from local MiniCPM, R1-R4 clicks advanced through the
+  engine depths, R4 reached the center, and desktop/mobile layouts had no
+  horizontal overflow.
