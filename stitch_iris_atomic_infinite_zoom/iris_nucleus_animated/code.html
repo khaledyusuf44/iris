@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #050508;
+            overflow: hidden;
+            margin: 0;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+        .luminous-glow {
+            box-shadow: 0 0 20px rgba(0, 218, 243, 0.3);
+        }
+        .orbital-line {
+            border: 0.5px solid rgba(180, 203, 206, 0.2);
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        .animate-float {
+            animation: float 6s ease-in-out infinite;
+        }
+        #particle-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+        /* Condensing Particles Styles */
+        .condense-particle {
+            position: fixed;
+            width: 3px;
+            height: 3px;
+            background: #00daf3;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 5;
+            box-shadow: 0 0 8px #00daf3;
+        }
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 40px rgba(0, 218, 243, 0.2); }
+            50% { box-shadow: 0 0 100px rgba(0, 218, 243, 0.6); }
+            100% { box-shadow: 0 0 40px rgba(0, 218, 243, 0.2); }
+        }
+        .pulse-effect {
+            animation: pulse-glow 1.5s ease-in-out infinite;
+        }
+    </style>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-variant": "#34343d",
+                    "on-primary": "#00363d",
+                    "tertiary": "#ffeac0",
+                    "primary-fixed-dim": "#00daf3",
+                    "surface-container-highest": "#34343d",
+                    "on-secondary": "#1f3436",
+                    "error": "#ffb4ab",
+                    "error-container": "#93000a",
+                    "on-secondary-fixed": "#091f21",
+                    "on-primary-fixed-variant": "#004f58",
+                    "surface-dim": "#13131b",
+                    "surface-container-high": "#292932",
+                    "inverse-on-surface": "#303038",
+                    "on-error-container": "#ffdad6",
+                    "background": "#13131b",
+                    "on-tertiary": "#3e2e00",
+                    "outline": "#849396",
+                    "primary": "#c3f5ff",
+                    "surface-bright": "#393841",
+                    "outline-variant": "#3b494c",
+                    "on-surface-variant": "#bac9cc",
+                    "on-surface": "#e4e1ed",
+                    "secondary": "#b4cbce",
+                    "surface-container": "#1f1f27",
+                    "on-primary-container": "#00626e",
+                    "on-tertiary-container": "#6f5500",
+                    "tertiary-fixed-dim": "#f3bf26",
+                    "on-background": "#e4e1ed",
+                    "on-primary-fixed": "#001f24",
+                    "on-tertiary-fixed-variant": "#594400",
+                    "tertiary-container": "#fec931",
+                    "on-secondary-container": "#a6bcbf",
+                    "inverse-surface": "#e4e1ed",
+                    "primary-fixed": "#9cf0ff",
+                    "on-secondary-fixed-variant": "#364a4d",
+                    "on-tertiary-fixed": "#251a00",
+                    "surface-container-low": "#1b1b23",
+                    "tertiary-fixed": "#ffdf96",
+                    "on-error": "#690005",
+                    "inverse-primary": "#006875",
+                    "secondary-container": "#384d4f",
+                    "primary-container": "#00e5ff",
+                    "surface-container-lowest": "#0d0d15",
+                    "surface-tint": "#00daf3",
+                    "surface": "#13131b",
+                    "secondary-fixed-dim": "#b4cbce",
+                    "secondary-fixed": "#d0e7ea"
+            },
+            "borderRadius": {
+                    "DEFAULT": "1rem",
+                    "lg": "2rem",
+                    "xl": "3rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "orbit-md": "32px",
+                    "orbit-sm": "16px",
+                    "orbit-xl": "128px",
+                    "margin": "40px",
+                    "orbit-lg": "64px",
+                    "gutter": "24px"
+            },
+            "fontFamily": {
+                    "headline-lg-mobile": ["Inter"],
+                    "label-sm": ["JetBrains Mono"],
+                    "headline-xl": ["Inter"],
+                    "body-md": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "label-xs": ["JetBrains Mono"]
+            },
+            "fontSize": {
+                    "headline-lg-mobile": ["24px", {"lineHeight": "1.2", "fontWeight": "400"}],
+                    "label-sm": ["12px", {"lineHeight": "1.5", "letterSpacing": "0.08em", "fontWeight": "500"}],
+                    "headline-xl": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "300"}],
+                    "body-md": ["16px", {"lineHeight": "1.6", "letterSpacing": "0.01em", "fontWeight": "400"}],
+                    "headline-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "400"}],
+                    "label-xs": ["10px", {"lineHeight": "1.4", "letterSpacing": "0.1em", "fontWeight": "500"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+          min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+<body class="text-on-background selection:bg-primary-container selection:text-on-primary-container">
+<!-- Background Layer: Particles -->
+<canvas id="particle-canvas"></canvas>
+<!-- UI Overlay: TopAppBar -->
+<header class="fixed top-0 w-full z-50 backdrop-blur-xl bg-surface/5 shadow-[0_0_20px_rgba(0,218,243,0.15)] flex justify-between items-center px-margin py-orbit-sm">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-fixed-dim" style="font-variation-settings: 'FILL' 0;">blur_on</span>
+<h1 class="font-headline-xl text-headline-xl tracking-tighter text-primary-fixed-dim">IRIS</h1>
+</div>
+<div class="flex items-center gap-orbit-md">
+<!-- Hidden on mobile as per platform pivot rule -->
+<nav class="hidden md:flex space-x-orbit-md">
+<span class="font-label-sm text-label-sm text-primary-fixed-dim cursor-pointer transition-colors duration-500">The Nucleus</span>
+<span class="font-label-sm text-label-sm text-outline hover:text-primary-fixed-dim cursor-pointer transition-colors duration-500">Manifest</span>
+<span class="font-label-sm text-label-sm text-outline hover:text-primary-fixed-dim cursor-pointer transition-colors duration-500">Archives</span>
+</nav>
+<span class="material-symbols-outlined text-outline hover:text-primary-fixed-dim cursor-pointer transition-colors duration-500" style="font-variation-settings: 'FILL' 0;">account_circle</span>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="relative min-h-screen w-full flex items-center justify-center p-margin overflow-hidden">
+<!-- The Nucleus Outline -->
+<div class="absolute w-[600px] h-[600px] md:w-[800px] md:h-[800px] rounded-full orbital-line flex items-center justify-center opacity-30 transition-all duration-1000" id="nucleus-container">
+<div class="absolute w-[80%] h-[80%] rounded-full orbital-line opacity-20"></div>
+<div class="absolute w-[60%] h-[60%] rounded-full orbital-line opacity-10"></div>
+<span class="font-label-sm text-label-sm text-outline uppercase tracking-[0.4em] pointer-events-none">Define your idea</span>
+</div>
+<!-- Floating Action Modal -->
+<div class="relative z-10 w-full max-w-xl animate-float">
+<div class="backdrop-blur-2xl bg-surface/10 rounded-xl p-orbit-lg border-[0.5px] border-secondary/20 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-700" id="action-modal">
+<div class="flex flex-col items-center gap-orbit-lg text-center">
+<div class="space-y-2">
+<h2 class="font-headline-lg text-headline-lg text-primary-fixed-dim">Initiate Synthesis</h2>
+<p class="font-body-md text-body-md text-outline">What shall we manifest in the void?</p>
+</div>
+<!-- Large Circular Input Field -->
+<div class="w-full relative group">
+<textarea class="w-full bg-transparent border-b border-outline-variant focus:border-primary-fixed-dim focus:ring-0 transition-all duration-700 text-center font-headline-lg-mobile text-headline-lg-mobile placeholder:text-surface-variant resize-none py-orbit-md" placeholder="Type the core of your vision..." rows="4"></textarea>
+<div class="absolute -bottom-[1px] left-0 w-0 h-[1px] bg-primary-fixed-dim group-focus-within:w-full transition-all duration-1000"></div>
+</div>
+<!-- Luminous Proceed Button -->
+<button class="group relative px-orbit-xl py-orbit-sm rounded-full border border-secondary/40 text-on-surface font-label-sm text-label-sm uppercase tracking-widest overflow-hidden transition-all duration-500 hover:border-primary-fixed-dim hover:text-on-primary-fixed" id="proceed-button">
+<div class="absolute inset-0 bg-primary-fixed-dim translate-y-full group-hover:translate-y-0 transition-transform duration-500 ease-out"></div>
+<span class="relative z-10" id="button-text">Proceed</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Particle Detailings -->
+<div class="absolute bottom-margin left-margin flex items-center gap-4 opacity-50">
+<div class="w-2 h-2 bg-primary-fixed-dim animate-pulse" id="status-dot"></div>
+<span class="font-label-xs text-label-xs text-outline" id="status-text">CORE STATUS: IDLE</span>
+</div>
+<div class="absolute top-margin right-margin flex items-center gap-4 opacity-50 hidden md:flex">
+<span class="font-label-xs text-label-xs text-outline">SYNCHRONIZING WITH INFINITY</span>
+<div class="w-12 h-[1px] bg-outline-variant"></div>
+</div>
+</main>
+<!-- Bottom Navigation Shell -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-center space-x-orbit-lg items-center px-margin pb-orbit-sm md:hidden">
+<div class="flex flex-col items-center justify-center text-primary-fixed-dim drop-shadow-[0_0_8px_rgba(0,218,243,0.8)] cursor-pointer group">
+<span class="material-symbols-outlined text-[24px]" style="font-variation-settings: 'FILL' 1;">adjust</span>
+<span class="font-label-sm text-label-sm opacity-0 group-hover:opacity-100 transition-opacity">Core</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline opacity-40 hover:opacity-100 hover:scale-110 transition-all duration-300 cursor-pointer">
+<span class="material-symbols-outlined text-[24px]">grain</span>
+<span class="font-label-sm text-label-sm">Stream</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline opacity-40 hover:opacity-100 hover:scale-110 transition-all duration-300 cursor-pointer">
+<span class="material-symbols-outlined text-[24px]">hub</span>
+<span class="font-label-sm text-label-sm">Links</span>
+</div>
+<div class="flex flex-col items-center justify-center text-outline opacity-40 hover:opacity-100 hover:scale-110 transition-all duration-300 cursor-pointer">
+<span class="material-symbols-outlined text-[24px]">settings</span>
+<span class="font-label-sm text-label-sm">Config</span>
+</div>
+</nav>
+<script>
+    // Particle System Simulation
+    const canvas = document.getElementById('particle-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    class Particle {
+        constructor() {
+            this.reset();
+        }
+
+        reset() {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height;
+            this.size = Math.random() * 1.5 + 0.5;
+            this.speedX = (Math.random() - 0.5) * 0.2;
+            this.speedY = (Math.random() - 0.5) * 0.2;
+            this.life = Math.random() * 1;
+            this.opacity = Math.random() * 0.5;
+        }
+
+        update() {
+            this.x += this.speedX;
+            this.y += this.speedY;
+
+            if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+                this.reset();
+            }
+        }
+
+        draw() {
+            ctx.fillStyle = `rgba(0, 218, 243, ${this.opacity})`;
+            ctx.fillRect(this.x, this.y, this.size, this.size);
+        }
+    }
+
+    for (let i = 0; i < 150; i++) {
+        particles.push(new Particle());
+    }
+
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        particles.forEach(p => {
+            p.update();
+            p.draw();
+        });
+        requestAnimationFrame(animate);
+    }
+
+    animate();
+
+    // Interactive focus for the input
+    const textarea = document.querySelector('textarea');
+    const modal = document.getElementById('action-modal');
+    
+    textarea.addEventListener('focus', () => {
+        if (!isSynthesizing) {
+            modal.style.boxShadow = '0 0 60px rgba(0, 218, 243, 0.2)';
+            modal.style.borderColor = 'rgba(195, 245, 255, 0.4)';
+        }
+    });
+
+    textarea.addEventListener('blur', () => {
+        if (!isSynthesizing) {
+            modal.style.boxShadow = '0 0 40px rgba(0, 0, 0, 0.5)';
+            modal.style.borderColor = 'rgba(180, 203, 206, 0.2)';
+        }
+    });
+
+    // Condensing Particles Animation logic
+    const proceedBtn = document.getElementById('proceed-button');
+    const buttonText = document.getElementById('button-text');
+    const statusText = document.getElementById('status-text');
+    const statusDot = document.getElementById('status-dot');
+    const nucleus = document.getElementById('nucleus-container');
+    let isSynthesizing = false;
+
+    proceedBtn.addEventListener('click', () => {
+        if (isSynthesizing) return;
+        isSynthesizing = true;
+
+        // Transition UI state
+        buttonText.innerText = 'Forming...';
+        statusText.innerText = 'CORE STATUS: SYNTHESIZING';
+        statusDot.classList.replace('bg-primary-fixed-dim', 'bg-tertiary-fixed-dim');
+        modal.classList.add('opacity-80', 'scale-95');
+        nucleus.classList.add('pulse-effect', 'opacity-60');
+
+        // Trigger particles
+        createCondensingParticles();
+
+        // Reset after animation
+        setTimeout(() => {
+            isSynthesizing = false;
+            buttonText.innerText = 'Proceed';
+            statusText.innerText = 'CORE STATUS: IDLE';
+            statusDot.classList.replace('bg-tertiary-fixed-dim', 'bg-primary-fixed-dim');
+            modal.classList.remove('opacity-80', 'scale-95');
+            nucleus.classList.remove('pulse-effect', 'opacity-60');
+        }, 3000);
+    });
+
+    function createCondensingParticles() {
+        const count = 120;
+        const centerX = window.innerWidth / 2;
+        const centerY = window.innerHeight / 2;
+
+        for (let i = 0; i < count; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'condense-particle';
+            
+            // Random start position on screen edges
+            let startX, startY;
+            const side = Math.floor(Math.random() * 4);
+            if (side === 0) { // Top
+                startX = Math.random() * window.innerWidth;
+                startY = -20;
+            } else if (side === 1) { // Right
+                startX = window.innerWidth + 20;
+                startY = Math.random() * window.innerHeight;
+            } else if (side === 2) { // Bottom
+                startX = Math.random() * window.innerWidth;
+                startY = window.innerHeight + 20;
+            } else { // Left
+                startX = -20;
+                startY = Math.random() * window.innerHeight;
+            }
+
+            particle.style.left = `${startX}px`;
+            particle.style.top = `${startY}px`;
+            
+            document.body.appendChild(particle);
+
+            // Animate towards center using Web Animations API
+            const duration = 800 + Math.random() * 1200;
+            const delay = Math.random() * 500;
+
+            const animation = particle.animate([
+                { 
+                    left: `${startX}px`, 
+                    top: `${startY}px`, 
+                    opacity: 0,
+                    transform: 'scale(0.5)'
+                },
+                { 
+                    opacity: 1, 
+                    offset: 0.2 
+                },
+                { 
+                    left: `${centerX}px`, 
+                    top: `${centerY}px`, 
+                    opacity: 0,
+                    transform: 'scale(2)'
+                }
+            ], {
+                duration: duration,
+                delay: delay,
+                easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+                fill: 'forwards'
+            });
+
+            animation.onfinish = () => {
+                particle.remove();
+            };
+        }
+    }
+</script>
+</body></html>

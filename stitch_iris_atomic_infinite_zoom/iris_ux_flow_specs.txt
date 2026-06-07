@@ -1,0 +1,25 @@
+# IRIS: The Spatial Experience
+
+## Core Concept
+The "Atomic" UI. A nucleus (central idea) with orbiting electrons (sub-thoughts). Clicking an electron zooms the camera into it, making it the new nucleus of a smaller, tighter shell.
+
+## Screen 1: The Nucleus (The Beginning)
+- **Visuals**: A large, glowing circle outline in the center of a pitch-black canvas.
+- **Interaction**: Clicking the circle opens a floating modal.
+- **Modal**: Contains a clean text input ("Define your idea") and a "Proceed" button.
+- **Animation (On Proceed)**: Particles flow from the edges of the screen to the center, "condensing" into the circle.
+
+## Screen 2: The Shell (Electrons Appear)
+- **Visuals**: The central circle now has 3-5 smaller "electron" circles orbiting its rim.
+- **Motion**: Subtle, gentle orbital drift.
+- **Content**: Each electron represents a "pressure" or angle surfaced by the engine.
+
+## Screen 3: Zoom/Descent (Infinite Loop)
+- **Interaction**: Clicking an electron triggers a high-speed "fly-in" zoom.
+- **Visuals**: The clicked electron scales up to become the new central nucleus. 
+- **Scale**: The new nucleus is visibly smaller/tighter in the overall spatial hierarchy, but the view scales to keep it comfortable.
+- **Breadcrumbs**: Faint, receding concentric rings in the background show the path traveled.
+
+## Screen 4: Depth View
+- **Visuals**: Multiple concentric rings visible, showing the user 3-4 levels deep.
+- **Feel**: Deep, focused, and calm.

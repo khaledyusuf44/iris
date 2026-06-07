@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>IRIS | Neural Core</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #050508;
+            color: #e4e1ed;
+            overflow: hidden;
+            margin: 0;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+        .nucleus-glow {
+            box-shadow: 0 0 60px rgba(0, 218, 243, 0.3), inset 0 0 20px rgba(0, 218, 243, 0.2);
+        }
+        .orbit-line {
+            border: 0.5px solid rgba(180, 203, 206, 0.1);
+        }
+        @keyframes pulse-slow {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 1; }
+        }
+        .animate-pulse-slow {
+            animation: pulse-slow 8s infinite ease-in-out;
+        }
+        @keyframes rotate-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-rotate {
+            animation: rotate-slow 60s linear infinite;
+        }
+        .glass-panel {
+            background: rgba(19, 19, 27, 0.4);
+            backdrop-filter: blur(20px);
+            border: 0.5px solid rgba(180, 203, 206, 0.2);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-surface-variant": "#bac9cc",
+                      "on-surface": "#e4e1ed",
+                      "surface-container": "#1f1f27",
+                      "secondary": "#b4cbce",
+                      "on-primary-container": "#00626e",
+                      "on-tertiary-fixed-variant": "#594400",
+                      "on-primary-fixed": "#001f24",
+                      "tertiary-fixed-dim": "#f3bf26",
+                      "on-tertiary-container": "#6f5500",
+                      "on-background": "#e4e1ed",
+                      "tertiary-container": "#fec931",
+                      "primary-fixed": "#9cf0ff",
+                      "inverse-surface": "#e4e1ed",
+                      "on-secondary-container": "#a6bcbf",
+                      "tertiary-fixed": "#ffdf96",
+                      "surface-container-low": "#1b1b23",
+                      "on-tertiary-fixed": "#251a00",
+                      "on-secondary-fixed-variant": "#364a4d",
+                      "on-error": "#690005",
+                      "secondary-container": "#384d4f",
+                      "primary-container": "#00e5ff",
+                      "inverse-primary": "#006875",
+                      "surface-container-lowest": "#0d0d15",
+                      "surface-tint": "#00daf3",
+                      "secondary-fixed": "#d0e7ea",
+                      "surface": "#13131b",
+                      "secondary-fixed-dim": "#b4cbce",
+                      "tertiary": "#ffeac0",
+                      "on-primary": "#00363d",
+                      "surface-variant": "#34343d",
+                      "primary-fixed-dim": "#00daf3",
+                      "surface-container-highest": "#34343d",
+                      "on-secondary": "#1f3436",
+                      "on-secondary-fixed": "#091f21",
+                      "error-container": "#93000a",
+                      "error": "#ffb4ab",
+                      "surface-dim": "#13131b",
+                      "on-primary-fixed-variant": "#004f58",
+                      "surface-container-high": "#292932",
+                      "on-error-container": "#ffdad6",
+                      "inverse-on-surface": "#303038",
+                      "background": "#13131b",
+                      "on-tertiary": "#3e2e00",
+                      "primary": "#c3f5ff",
+                      "outline": "#849396",
+                      "outline-variant": "#3b494c",
+                      "surface-bright": "#393841"
+              },
+              "borderRadius": {
+                      "DEFAULT": "1rem",
+                      "lg": "2rem",
+                      "xl": "3rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "margin": "40px",
+                      "orbit-md": "32px",
+                      "orbit-xl": "128px",
+                      "orbit-sm": "16px",
+                      "orbit-lg": "64px",
+                      "gutter": "24px"
+              },
+              "fontFamily": {
+                      "label-xs": ["JetBrains Mono"],
+                      "headline-lg": ["Inter"],
+                      "headline-xl": ["Inter"],
+                      "body-md": ["Inter"],
+                      "label-sm": ["JetBrains Mono"],
+                      "headline-lg-mobile": ["Inter"]
+              },
+              "fontSize": {
+                      "label-xs": ["10px", {"lineHeight": "1.4", "letterSpacing": "0.1em", "fontWeight": "500"}],
+                      "headline-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "400"}],
+                      "headline-xl": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "300"}],
+                      "body-md": ["16px", {"lineHeight": "1.6", "letterSpacing": "0.01em", "fontWeight": "400"}],
+                      "label-sm": ["12px", {"lineHeight": "1.5", "letterSpacing": "0.08em", "fontWeight": "500"}],
+                      "headline-lg-mobile": ["24px", {"lineHeight": "1.2", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+      </script>
+</head>
+<body class="font-body-md text-on-background selection:bg-primary/30">
+<!-- Global Navigation -->
+<nav class="fixed top-0 z-50 flex justify-between items-center w-full px-margin h-20 max-w-[1920px] mx-auto bg-surface/40 backdrop-blur-xl border-b border-secondary/20">
+<div class="font-headline-lg text-headline-lg font-light tracking-tighter text-primary-fixed-dim drop-shadow-[0_0_10px_rgba(0,218,243,0.5)] cursor-pointer">
+            IRIS
+        </div>
+<div class="hidden md:flex gap-orbit-md">
+<a class="font-label-sm text-label-sm uppercase tracking-widest text-primary border-b border-primary-container pb-1 transition-all duration-500" href="#">Deep Scan</a>
+<a class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors duration-300" href="#">Orbital Hub</a>
+<a class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors duration-300" href="#">Neural Link</a>
+<a class="font-label-sm text-label-sm uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors duration-300" href="#">Archive</a>
+</div>
+<div class="flex items-center gap-6">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:scale-95 duration-300">settings</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:scale-95 duration-300">account_circle</button>
+</div>
+</nav>
+<!-- Side Navigation -->
+<aside class="fixed left-0 top-20 h-[calc(100vh-80px)] w-20 flex flex-col items-center py-orbit-md gap-orbit-lg border-r border-secondary/10 bg-surface-container-lowest/10 backdrop-blur-md">
+<div class="group cursor-pointer">
+<span class="material-symbols-outlined bg-primary/10 text-primary-fixed rounded-full p-3 ring-1 ring-primary/40 shadow-[0_0_15px_rgba(0,218,243,0.2)]">layers</span>
+</div>
+<div class="group cursor-pointer">
+<span class="material-symbols-outlined text-on-surface-variant opacity-60 p-3 hover:opacity-100 transition-transform duration-500 group-hover:rotate-12">radar</span>
+</div>
+<div class="group cursor-pointer">
+<span class="material-symbols-outlined text-on-surface-variant opacity-60 p-3 hover:opacity-100 transition-transform duration-500 group-hover:rotate-12">rocket_launch</span>
+</div>
+<div class="group cursor-pointer">
+<span class="material-symbols-outlined text-on-surface-variant opacity-60 p-3 hover:opacity-100 transition-transform duration-500 group-hover:rotate-12">wb_twilight</span>
+</div>
+<div class="mt-auto pb-4 flex flex-col items-center gap-2">
+<div class="w-8 h-8 rounded-full border border-primary/40 overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A professional close-up portrait of a futuristic spacecraft pilot with cybernetic facial accents, softly illuminated by blue neon lights in a dark, high-tech environment. The style is cinematic and polished, reflecting a high-end technological aesthetic with deep shadows and sharp focus on intricate textures." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBYvM54guopypkkuAoPb3oGpmuSDTuvUW_b-EEh9As0TJT2YK1Qebdyqlr2CJxslLpOeeOaGlmiQDUM0WqxOpZg8Ly7RY6eXUL_ACFXnRfV6ztovDIjMfvHR3uyqnSH5LZyeCEbY02w3xBkWN6VinDF5mBfCZCHtq1BnCSiTjEnA_2o6MXEQU3kqIA96TIa3GOiaZVBgRYPVhZvzjJpKdXjSt3ED38gH75PjkTjyJdOCqoo-jmw4p0TQpwSvtqsP8rcIlv4F9fSqpNS"/>
+</div>
+<span class="font-label-xs text-label-xs text-primary">14.2k</span>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="relative h-screen w-full flex items-center justify-center overflow-hidden">
+<!-- Background Orbits -->
+<div class="absolute w-[600px] h-[600px] rounded-full border border-secondary/5 animate-rotate"></div>
+<div class="absolute w-[900px] h-[900px] rounded-full border border-secondary/5 animate-rotate" style="animation-direction: reverse; animation-duration: 90s;"></div>
+<!-- Particle Stardust -->
+<div class="absolute inset-0 pointer-events-none opacity-20">
+<div class="absolute top-1/4 left-1/3 w-0.5 h-0.5 bg-primary rounded-full"></div>
+<div class="absolute top-1/2 left-1/4 w-0.5 h-0.5 bg-primary rounded-full"></div>
+<div class="absolute top-2/3 left-3/4 w-0.5 h-0.5 bg-primary rounded-full"></div>
+<div class="absolute top-1/4 right-1/4 w-0.5 h-0.5 bg-primary rounded-full"></div>
+<div class="absolute bottom-1/4 left-1/2 w-0.5 h-0.5 bg-primary rounded-full"></div>
+</div>
+<!-- The Nucleus -->
+<div class="relative group cursor-pointer transition-all duration-700 active:scale-90" id="nucleusTrigger">
+<!-- Pulsing Rings -->
+<div class="absolute inset-0 rounded-full bg-primary-fixed-dim/5 scale-150 blur-3xl animate-pulse-slow"></div>
+<!-- Main Circle -->
+<div class="w-64 h-64 rounded-full glass-panel nucleus-glow flex flex-col items-center justify-center transition-all duration-500 group-hover:shadow-[0_0_80px_rgba(0,218,243,0.4)] group-hover:border-primary/50">
+<span class="material-symbols-outlined text-primary text-5xl mb-2 transition-transform duration-700 group-hover:scale-110" style="font-variation-settings: 'FILL' 1;">adjust</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest group-hover:text-primary transition-colors">Initiate Scan</span>
+</div>
+<!-- Floating Data Chips (Electrons) -->
+<div class="absolute -top-8 -right-8 glass-panel px-3 py-1 rounded-full text-label-xs font-label-xs text-primary-fixed-dim transition-transform duration-1000 group-hover:translate-x-4 group-hover:-translate-y-4">
+                STATUS: IDLE
+            </div>
+<div class="absolute -bottom-4 -left-12 glass-panel px-3 py-1 rounded-full text-label-xs font-label-xs text-secondary-fixed-dim transition-transform duration-1000 group-hover:-translate-x-6 group-hover:translate-y-2">
+                LATENCY: 12ms
+            </div>
+</div>
+<!-- Hero Typography -->
+<div class="absolute bottom-orbit-lg text-center w-full max-w-2xl px-margin">
+<h1 class="font-headline-xl text-headline-xl text-on-surface mb-4">The universe is waiting for your input.</h1>
+<p class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-[0.2em]">Deploy neural probes to map conceptual space.</p>
+</div>
+</main>
+<!-- Modal Backdrop -->
+<div class="fixed inset-0 z-[60] hidden flex items-center justify-center bg-background/80 backdrop-blur-md opacity-0 transition-opacity duration-500" id="modalBackdrop">
+<!-- Input Modal -->
+<div class="relative w-full max-w-2xl glass-panel p-orbit-lg rounded-xl transform scale-95 opacity-0 transition-all duration-500" id="inputModal">
+<button class="absolute top-orbit-sm right-orbit-sm material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors" id="closeModal">close</button>
+<div class="mb-orbit-md">
+<span class="font-label-xs text-label-xs text-primary uppercase tracking-widest mb-2 block">Neural Injection Protocol</span>
+<h2 class="font-headline-lg text-headline-lg text-on-surface">What idea shall we explore today?</h2>
+</div>
+<div class="relative mb-orbit-lg">
+<textarea class="w-full bg-transparent border-b border-secondary/20 focus:border-primary focus:ring-0 text-on-surface font-label-sm text-xl placeholder:text-on-surface-variant/30 py-4 transition-all duration-300 resize-none min-h-[120px]" placeholder="Enter keywords or a complex query..."></textarea>
+<div class="absolute bottom-0 left-0 w-0 h-[1px] bg-primary transition-all duration-700" id="inputBorder"></div>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex gap-2">
+<span class="glass-panel px-3 py-1 rounded-full text-label-xs font-label-xs text-on-secondary-container">#SYNTHESIS</span>
+<span class="glass-panel px-3 py-1 rounded-full text-label-xs font-label-xs text-on-secondary-container">#DEEP-MAPPING</span>
+</div>
+<button class="bg-transparent border border-primary text-primary px-8 py-3 rounded-full font-label-sm text-label-sm uppercase tracking-widest hover:bg-primary hover:text-on-primary transition-all duration-500 active:scale-95 shadow-[0_0_15px_rgba(0,218,243,0.2)]">
+                    Engage Probes
+                </button>
+</div>
+</div>
+</div>
+<script>
+        const trigger = document.getElementById('nucleusTrigger');
+        const backdrop = document.getElementById('modalBackdrop');
+        const modal = document.getElementById('inputModal');
+        const close = document.getElementById('closeModal');
+        const textarea = document.querySelector('textarea');
+
+        trigger.addEventListener('click', () => {
+            backdrop.classList.remove('hidden');
+            setTimeout(() => {
+                backdrop.classList.add('opacity-100');
+                modal.classList.add('scale-100', 'opacity-100');
+            }, 10);
+        });
+
+        const hideModal = () => {
+            backdrop.classList.remove('opacity-100');
+            modal.classList.remove('scale-100', 'opacity-100');
+            setTimeout(() => {
+                backdrop.classList.add('hidden');
+            }, 500);
+        };
+
+        close.addEventListener('click', hideModal);
+        backdrop.addEventListener('click', (e) => {
+            if (e.target === backdrop) hideModal();
+        });
+
+        textarea.addEventListener('focus', () => {
+            document.getElementById('inputBorder').style.width = '100%';
+        });
+
+        textarea.addEventListener('blur', () => {
+            if (textarea.value === '') {
+                document.getElementById('inputBorder').style.width = '0%';
+            }
+        });
+
+        // Micro-interaction for nucleus
+        document.addEventListener('mousemove', (e) => {
+            const moveX = (e.clientX - window.innerWidth / 2) / 50;
+            const moveY = (e.clientY - window.innerHeight / 2) / 50;
+            trigger.style.transform = `translate(${moveX}px, ${moveY}px)`;
+        });
+    </script>
+</body></html>

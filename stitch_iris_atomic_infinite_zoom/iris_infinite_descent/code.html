@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>IRIS - The Descent: Level 3</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-variant": "#34343d",
+                        "on-primary": "#00363d",
+                        "tertiary": "#ffeac0",
+                        "primary-fixed-dim": "#00daf3",
+                        "surface-container-highest": "#34343d",
+                        "on-secondary": "#1f3436",
+                        "error": "#ffb4ab",
+                        "error-container": "#93000a",
+                        "on-secondary-fixed": "#091f21",
+                        "on-primary-fixed-variant": "#004f58",
+                        "surface-dim": "#13131b",
+                        "surface-container-high": "#292932",
+                        "inverse-on-surface": "#303038",
+                        "on-error-container": "#ffdad6",
+                        "background": "#13131b",
+                        "on-tertiary": "#3e2e00",
+                        "outline": "#849396",
+                        "primary": "#c3f5ff",
+                        "surface-bright": "#393841",
+                        "outline-variant": "#3b494c",
+                        "on-surface-variant": "#bac9cc",
+                        "on-surface": "#e4e1ed",
+                        "secondary": "#b4cbce",
+                        "surface-container": "#1f1f27",
+                        "on-primary-container": "#00626e",
+                        "on-tertiary-container": "#6f5500",
+                        "tertiary-fixed-dim": "#f3bf26",
+                        "on-background": "#e4e1ed",
+                        "on-primary-fixed": "#001f24",
+                        "on-tertiary-fixed-variant": "#594400",
+                        "tertiary-container": "#fec931",
+                        "on-secondary-container": "#a6bcbf",
+                        "inverse-surface": "#e4e1ed",
+                        "primary-fixed": "#9cf0ff",
+                        "on-secondary-fixed-variant": "#364a4d",
+                        "on-tertiary-fixed": "#251a00",
+                        "surface-container-low": "#1b1b23",
+                        "tertiary-fixed": "#ffdf96",
+                        "on-error": "#690005",
+                        "inverse-primary": "#006875",
+                        "secondary-container": "#384d4f",
+                        "primary-container": "#00e5ff",
+                        "surface-container-lowest": "#0d0d15",
+                        "surface-tint": "#00daf3",
+                        "surface": "#13131b",
+                        "secondary-fixed-dim": "#b4cbce",
+                        "secondary-fixed": "#d0e7ea"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "1rem",
+                        "lg": "2rem",
+                        "xl": "3rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "orbit-md": "32px",
+                        "orbit-sm": "16px",
+                        "orbit-xl": "128px",
+                        "margin": "40px",
+                        "orbit-lg": "64px",
+                        "gutter": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Inter"],
+                        "label-sm": ["JetBrains Mono"],
+                        "headline-xl": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-xs": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["24px", {"lineHeight": "1.2", "fontWeight": "400"}],
+                        "label-sm": ["12px", {"lineHeight": "1.5", "letterSpacing": "0.08em", "fontWeight": "500"}],
+                        "headline-xl": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "300"}],
+                        "body-md": ["16px", {"lineHeight": "1.6", "letterSpacing": "0.01em", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "400"}],
+                        "label-xs": ["10px", {"lineHeight": "1.4", "letterSpacing": "0.1em", "fontWeight": "500"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #050508;
+            overflow: hidden;
+            perspective: 1000px;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .nucleus-glow {
+            box-shadow: 0 0 40px rgba(0, 218, 243, 0.4);
+        }
+        .orbital-ring {
+            border: 1px solid rgba(180, 203, 206, 0.1);
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        .descent-animation {
+            animation: drift 20s infinite linear;
+        }
+        @keyframes drift {
+            from { transform: translate(-50%, -50%) scale(1); }
+            to { transform: translate(-50%, -50%) scale(1.1); }
+        }
+        .electron {
+            animation: orbit-rotate linear infinite;
+        }
+        @keyframes orbit-rotate {
+            from { transform: rotate(0deg) translateX(var(--orbit-radius)) rotate(0deg); }
+            to { transform: rotate(360deg) translateX(var(--orbit-radius)) rotate(-360deg); }
+        }
+        .particle {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: #00daf3;
+            border-radius: 50%;
+            opacity: 0.3;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="text-on-background font-body-md text-body-md min-h-screen flex flex-col">
+<!-- Particles Background -->
+<div class="fixed inset-0 pointer-events-none z-0" id="particle-container"></div>
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 w-full backdrop-blur-xl bg-surface/5 shadow-[0_0_20px_rgba(0,218,243,0.15)] flex justify-between items-center px-margin py-orbit-sm z-50">
+<div class="flex items-center space-x-orbit-sm">
+<span class="material-symbols-outlined text-primary-fixed-dim" style="font-variation-settings: 'FILL' 0;">blur_on</span>
+<span class="font-headline-xl text-headline-xl tracking-tighter text-primary-fixed-dim">IRIS</span>
+</div>
+<div class="flex flex-col items-center">
+<span class="font-label-xs text-label-xs text-primary-fixed-dim uppercase tracking-widest">Descent Protocol</span>
+<div class="flex items-center space-x-2 mt-1">
+<div class="h-1 w-4 bg-outline-variant rounded-full"></div>
+<div class="h-1 w-4 bg-outline-variant rounded-full"></div>
+<div class="h-1 w-8 bg-primary-fixed-dim rounded-full shadow-[0_0_8px_#00daf3]"></div>
+</div>
+</div>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-outline hover:text-primary-fixed-dim transition-colors duration-500 cursor-pointer">account_circle</span>
+</div>
+</header>
+<!-- Main Spatial Canvas -->
+<main class="relative flex-grow flex items-center justify-center overflow-hidden">
+<!-- Receding Breadcrumbs (The Path Upwards) -->
+<div class="absolute inset-0 z-10 pointer-events-none flex items-center justify-center">
+<!-- Level 1 Ring -->
+<div class="orbital-ring w-[1200px] h-[1200px] opacity-10"></div>
+<!-- Level 2 Ring -->
+<div class="orbital-ring w-[800px] h-[800px] opacity-20"></div>
+<!-- Vertical Descent Lines -->
+<div class="absolute w-[1px] h-[1768px] bg-gradient-to-b from-transparent via-primary-fixed-dim/10 to-transparent rotate-45"></div>
+<div class="absolute w-[1px] h-[1768px] bg-gradient-to-b from-transparent via-primary-fixed-dim/10 to-transparent -rotate-45"></div>
+</div>
+<!-- Level Indicator -->
+<div class="absolute top-margin left-1/2 -translate-x-1/2 z-40 text-center">
+<div class="font-label-sm text-label-sm text-outline mb-2 opacity-60">CURRENT DEPTH</div>
+<div class="font-headline-lg text-headline-lg text-primary-fixed-dim tracking-widest">LEVEL 3</div>
+</div>
+<!-- Central Nucleus Group -->
+<div class="relative z-30 transition-all duration-1000 transform scale-75 lg:scale-100">
+<!-- Core Nucleus -->
+<div class="w-24 h-24 rounded-full border border-primary-fixed-dim/30 backdrop-blur-xl bg-surface/5 nucleus-glow flex items-center justify-center relative overflow-hidden group hover:scale-110 transition-transform duration-700">
+<div class="absolute inset-0 bg-gradient-to-tr from-primary-fixed-dim/20 to-transparent"></div>
+<span class="material-symbols-outlined text-primary-fixed-dim text-4xl" style="font-variation-settings: 'FILL' 1;">hub</span>
+</div>
+<!-- Internal Electrons (Current Level Data) -->
+<div class="electron absolute -top-16 -left-16" style="--orbit-radius: 140px; animation-duration: 15s;">
+<div class="bg-surface-container-low border border-outline-variant/30 px-3 py-1.5 rounded-full flex items-center space-x-2 backdrop-blur-md">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span class="font-label-xs text-label-xs text-on-surface-variant">NODE_ALPHA</span>
+</div>
+</div>
+<div class="electron absolute -top-16 -left-16" style="--orbit-radius: 180px; animation-duration: 25s; animation-delay: -5s;">
+<div class="bg-surface-container-low border border-outline-variant/30 px-3 py-1.5 rounded-full flex items-center space-x-2 backdrop-blur-md">
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+<span class="font-label-xs text-label-xs text-on-surface-variant">TEMP_STABLE</span>
+</div>
+</div>
+<!-- Zoom-In Highlighted Path Electron -->
+<div class="electron absolute -top-16 -left-16" style="--orbit-radius: 240px; animation-duration: 35s; animation-delay: -12s;">
+<div class="relative group cursor-pointer">
+<div class="absolute -inset-4 bg-primary-fixed-dim/10 blur-xl rounded-full opacity-50 group-hover:opacity-100 transition-opacity"></div>
+<div class="bg-surface-container-highest border border-primary-fixed-dim/50 px-4 py-2 rounded-full flex items-center space-x-3 backdrop-blur-xl relative">
+<span class="material-symbols-outlined text-primary-fixed-dim text-sm" style="font-variation-settings: 'FILL' 1;">arrow_downward</span>
+<span class="font-label-sm text-label-sm text-primary-fixed-dim font-bold">DEEP_RECURSION</span>
+<span class="w-2 h-2 rounded-full bg-primary-fixed-dim animate-pulse"></span>
+</div>
+<!-- Zoom Path Visualizer -->
+<div class="absolute top-full left-1/2 -translate-x-1/2 w-[1px] h-20 bg-gradient-to-b from-primary-fixed-dim to-transparent mt-2"></div>
+</div>
+</div>
+</div>
+<!-- Floating Info Cards (Asymmetric Layout) -->
+<div class="absolute bottom-margin left-margin z-40 max-w-xs space-y-gutter">
+<div class="backdrop-blur-xl bg-surface/5 border-[0.5px] border-secondary/20 p-orbit-sm rounded-lg hover:border-primary-fixed-dim/40 transition-all duration-500">
+<h3 class="font-label-sm text-label-sm text-outline mb-2">SYSTEM_LOG</h3>
+<p class="font-body-md text-on-surface-variant text-sm leading-relaxed">
+                    Analyzing sub-atomic structures of the current nucleus. Level 3 stability verified at 99.98%. All electrons oscillating within predicted parameters.
+                </p>
+</div>
+</div>
+<div class="absolute top-orbit-xl right-margin z-40 max-w-[200px] text-right">
+<div class="space-y-4">
+<div class="flex flex-col items-end">
+<span class="font-label-xs text-label-xs text-outline mb-1">DENSITY</span>
+<span class="font-label-sm text-label-sm text-primary-fixed-dim">1.284 MG/S</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="font-label-xs text-label-xs text-outline mb-1">PROXIMITY</span>
+<span class="font-label-sm text-label-sm text-primary-fixed-dim">DEPTH_CRIT_3</span>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-center space-x-orbit-lg items-center px-margin pb-orbit-sm bg-transparent">
+<div class="flex space-x-orbit-lg bg-surface/10 backdrop-blur-xl px-8 py-4 rounded-full border border-outline-variant/10">
+<button class="flex flex-col items-center justify-center text-outline opacity-40 hover:opacity-100 hover:scale-110 transition-all duration-300">
+<span class="material-symbols-outlined" data-icon="adjust">adjust</span>
+</button>
+<button class="flex flex-col items-center justify-center text-primary-fixed-dim drop-shadow-[0_0_8px_rgba(0,218,243,0.8)] hover:scale-110 transition-all duration-300">
+<span class="material-symbols-outlined" data-icon="Grain">grain</span>
+</button>
+<button class="flex flex-col items-center justify-center text-outline opacity-40 hover:opacity-100 hover:scale-110 transition-all duration-300">
+<span class="material-symbols-outlined" data-icon="Hub">hub</span>
+</button>
+<button class="flex flex-col items-center justify-center text-outline opacity-40 hover:opacity-100 hover:scale-110 transition-all duration-300">
+<span class="material-symbols-outlined" data-icon="Settings">settings</span>
+</button>
+</div>
+</nav>
+<!-- Visual Polish: Vignette -->
+<div class="fixed inset-0 pointer-events-none z-20 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(5,5,8,0.8)_100%)]"></div>
+<script>
+        // Particle Generation
+        const container = document.getElementById('particle-container');
+        const particleCount = 60;
+
+        for (let i = 0; i < particleCount; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            const size = Math.random() * 2 + 1;
+            p.style.width = `${size}px`;
+            p.style.height = `${size}px`;
+            p.style.left = `${Math.random() * 100}vw`;
+            p.style.top = `${Math.random() * 100}vh`;
+            p.style.opacity = Math.random() * 0.5;
+            
+            // Random movement
+            p.animate([
+                { transform: 'translate(0, 0)' },
+                { transform: `translate(${Math.random() * 100 - 50}px, ${Math.random() * 100 - 50}px)` }
+            ], {
+                duration: Math.random() * 10000 + 10000,
+                iterations: Infinity,
+                direction: 'alternate',
+                easing: 'ease-in-out'
+            });
+
+            container.appendChild(p);
+        }
+
+        // Interactive mouse parallax for the canvas
+        document.addEventListener('mousemove', (e) => {
+            const x = (e.clientX / window.innerWidth - 0.5) * 20;
+            const y = (e.clientY / window.innerHeight - 0.5) * 20;
+            const canvas = document.querySelector('main > div.relative.z-30');
+            if (canvas) {
+                canvas.style.transform = `scale(0.85) translate(${x}px, ${y}px)`;
+            }
+        });
+    </script>
+</body></html>
