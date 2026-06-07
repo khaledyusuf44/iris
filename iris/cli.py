@@ -7,13 +7,8 @@ import sys
 
 from iris.engine import IrisEngine
 from iris.errors import IrisError
-
-
-DEFAULT_IDEAS = [
-    "An app that reminds elderly people to take their medication.",
-    "A marketplace for renting tools between neighbors.",
-    "A study tool that turns lecture notes into flashcards.",
-]
+from iris.seeds import DEFAULT_IDEAS
+from iris.spiral import SpiralRun, run_spiral as collect_spiral
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,19 +51,22 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run_spiral(engine: IrisEngine, idea: str, rings: int) -> None:
-    constraints: list[str] = []
+    print_spiral(collect_spiral(engine, idea, rings))
 
-    for depth in range(1, rings + 1):
-        result = engine.pressure(idea, constraints, depth, rings)
-        constraints.append(result.as_constraint())
-        print(f"Ring {depth}/{rings}")
+
+def print_spiral(run: SpiralRun) -> None:
+    total = len(run.pressures)
+    for depth, result in enumerate(run.pressures, start=1):
+        print(f"Ring {depth}/{total}")
         print(f"Pressure: {result.pressure}")
         print(f"Why it bites: {result.why_it_bites}")
         print()
 
-    center = engine.distill(idea, constraints)
     print("Center")
-    print(f"Next step: {center.next_step}")
+    print(f"Actor: {run.center.actor}")
+    print(f"Situation: {run.center.situation}")
+    print(f"Assumption to test: {run.center.assumption_to_test}")
+    print(f"Next step: {run.center.next_step}")
     print()
 
 

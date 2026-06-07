@@ -21,6 +21,7 @@ from iris.prompts import (
 
 
 MAX_MODEL_ATTEMPTS = 3
+PRESSURE_REPEAT_THRESHOLD = 0.68
 
 BANNED_PRESSURE_PHRASES = (
     "the app needs",
@@ -40,6 +41,28 @@ BANNED_PRESSURE_PHRASES = (
     "why does the tool fail",
 )
 
+WHY_ADVICE_PHRASES = (
+    "should",
+    "need for",
+    "need to",
+    "needs to",
+    "must",
+    "recommend",
+    "recommends",
+    "recommendation",
+    "incorporate",
+    "feature",
+    "features",
+    "solution",
+    "solutions",
+    "guidance",
+    "strategy",
+    "strategies",
+    "implement",
+    "develop",
+    "design",
+)
+
 BANNED_CENTER_WORDS = (
     "implement",
     "design",
@@ -51,18 +74,25 @@ BANNED_CENTER_WORDS = (
     "create",
 )
 
-VALID_CENTER_STARTS = (
+WEAK_CENTER_FILLS = (
+    "interview",
     "call",
     "ask",
-    "interview",
     "watch",
     "observe",
     "test",
     "visit",
     "find",
     "send",
-    "sit with",
-    "talk to",
+    "user",
+    "users",
+    "people",
+    "person",
+    "someone",
+    "customer",
+    "customers",
+    "stakeholder",
+    "stakeholders",
 )
 
 
@@ -83,6 +113,9 @@ class PressureResult:
 
 @dataclass(frozen=True)
 class DistillResult:
+    actor: str
+    situation: str
+    assumption_to_test: str
     next_step: str
     raw: str
 
@@ -217,7 +250,7 @@ class IrisEngine:
                 feedback = str(exc)
                 continue
 
-            quality_feedback = _distill_quality_feedback(result)
+            quality_feedback = _distill_quality_feedback(result, idea)
             if quality_feedback is None:
                 return result
 
@@ -252,11 +285,34 @@ class IrisEngine:
         )
         data = parse_json_object(raw)
         try:
+            actor = require_string(
+                data,
+                "actor",
+                aliases=("person", "role", "real_actor", "participant"),
+            )
+            situation = require_string(
+                data,
+                "situation",
+                aliases=("moment", "scenario", "behavior", "context"),
+            )
+            assumption_to_test = require_string(
+                data,
+                "assumption_to_test",
+                aliases=(
+                    "assumption",
+                    "load_bearing_assumption",
+                    "test_assumption",
+                    "risk_to_test",
+                ),
+            )
             return DistillResult(
-                next_step=require_string(
-                    data,
-                    "next_step",
-                    aliases=("next step", "action", "next_action", "center"),
+                actor=actor,
+                situation=situation,
+                assumption_to_test=assumption_to_test,
+                next_step=_format_center_action(
+                    actor=actor,
+                    situation=situation,
+                    assumption_to_test=assumption_to_test,
                 ),
                 raw=raw,
             )
@@ -322,32 +378,140 @@ def _pressure_quality_feedback(
     if any(word in normalized for word in ("implement ", "design ", "build ", "add ")):
         return "Pressure proposed implementation instead of applying pressure."
 
+    why_advice = advice_language_phrase(result.why_it_bites)
+    if why_advice is not None:
+        return (
+            f'why_it_bites used recommendation language: "{why_advice}". '
+            "Return a risk-only bite that explains the stakes without saying "
+            "what to build, add, change, or recommend."
+        )
+
     for prior in prior_constraints:
         prior_pressure = prior.split(" Why it bites:", 1)[0]
-        if SequenceMatcher(None, normalized, _normalize(prior_pressure)).ratio() >= 0.72:
+        if (
+            SequenceMatcher(None, normalized, _normalize(prior_pressure)).ratio()
+            >= PRESSURE_REPEAT_THRESHOLD
+        ):
             return "Pressure repeats a prior ring instead of escalating."
 
     return None
 
 
-def _distill_quality_feedback(result: DistillResult) -> str | None:
-    next_step = result.next_step.strip()
-    normalized = _normalize(next_step)
+def _distill_quality_feedback(result: DistillResult, idea: str) -> str | None:
+    fields = {
+        "actor": result.actor,
+        "situation": result.situation,
+        "assumption_to_test": result.assumption_to_test,
+    }
 
-    for word in BANNED_CENTER_WORDS:
-        if re.search(rf"\b{re.escape(word)}\b", normalized):
-            return f'Center step used banned implementation verb: "{word}".'
+    for field_name, value in fields.items():
+        normalized = _normalize(value)
+        if normalized in WEAK_CENTER_FILLS:
+            return (
+                f'Center field "{field_name}" is too weak: "{value}". '
+                "The model must choose a concrete actor, situation, and assumption."
+            )
 
-    if not normalized.startswith(VALID_CENTER_STARTS):
+        for word in BANNED_CENTER_WORDS:
+            if re.search(rf"\b{re.escape(word)}\b", normalized):
+                return (
+                    f'Center field "{field_name}" used banned implementation '
+                    f'verb: "{word}".'
+                )
+
+        advice = advice_language_phrase(value)
+        if advice is not None:
+            return (
+                f'Center field "{field_name}" used recommendation language: '
+                f'"{advice}". Choose a validation assumption, not a solution.'
+            )
+
+    if len(result.situation.split()) < 5:
         return (
-            "Center step must start with a concrete validation action: Call, Ask, "
-            "Interview, Watch, Observe, Test, Visit, Find, Send, or Sit with."
+            "Center situation is too short; name the real moment or behavior "
+            "the human can validate this week."
         )
 
-    if len(next_step.split()) < 7:
-        return "Center step is too short; name the real person or situation to validate."
+    if len(result.assumption_to_test.split()) < 5:
+        return (
+            "Center assumption_to_test is too short; name the assumption whose "
+            "failure would weaken the idea."
+        )
+
+    idea_keywords = _keywords(idea)
+    combined_fields = _normalize(
+        " ".join(
+            (
+                result.actor,
+                result.situation,
+                result.assumption_to_test,
+                result.next_step,
+            )
+        )
+    )
+    if idea_keywords and not _has_keyword_match(combined_fields, idea_keywords):
+        return (
+            "Center fields are not grounded in the idea. Use at least one "
+            f"concrete word from the idea: {', '.join(sorted(idea_keywords)[:6])}."
+        )
 
     return None
+
+
+def advice_language_phrase(text: str) -> str | None:
+    normalized = _normalize(text)
+    for phrase in WHY_ADVICE_PHRASES:
+        if phrase in {"need to", "needs to"}:
+            if _has_recommendation_need(normalized):
+                return phrase
+            continue
+        if re.search(rf"\b{re.escape(phrase)}\b", normalized):
+            return phrase
+    return None
+
+
+def _has_recommendation_need(normalized: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:app|tool|platform|product|service|builder|team|we|you|they)\s+needs?\s+to\b",
+            normalized,
+        )
+        or re.search(
+            r"\bneed(?:s)?\s+to\s+(?:add|build|include|incorporate|implement|design|develop|create|provide|change|improve)\b",
+            normalized,
+        )
+    )
+
+
+def _format_center_action(
+    actor: str,
+    situation: str,
+    assumption_to_test: str,
+) -> str:
+    actor_phrase = _single_actor_phrase(_strip_terminal_punctuation(actor))
+    situation_phrase = _strip_terminal_punctuation(situation)
+    assumption_clause = _assumption_clause(
+        _strip_terminal_punctuation(assumption_to_test)
+    )
+    return (
+        f"Ask {actor_phrase} to walk through this situation: {situation_phrase}, "
+        f"so you can test whether {assumption_clause}."
+    )
+
+
+def _single_actor_phrase(actor: str) -> str:
+    normalized = _normalize(actor)
+    if re.match(r"^(a|an|one|the|two|three)\b", normalized):
+        return actor
+    return f"one {actor}"
+
+
+def _assumption_clause(assumption: str) -> str:
+    return re.sub(r"^(whether|if|that)\s+", "", assumption, flags=re.IGNORECASE)
+
+
+def _strip_terminal_punctuation(text: str) -> str:
+    return text.strip().rstrip(".?!;:")
 
 
 def _normalize(text: str) -> str:

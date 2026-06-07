@@ -13,7 +13,11 @@ required_files=(
   "iris/__init__.py"
   "iris/engine.py"
   "iris/cli.py"
+  "iris/gate.py"
+  "iris/seeds.py"
+  "iris/spiral.py"
   "tests/test_engine.py"
+  "scripts/validate_gate.py"
 )
 
 missing=0

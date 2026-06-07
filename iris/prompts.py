@@ -14,24 +14,29 @@ Hard rules:
   "seamless experience", "existing workarounds", or "the app needs".
 - Do not repeat any prior pressure or reuse its frame.
 - Escalate with depth: each deeper ring must attack a different, deeper assumption.
+- why_it_bites explains only the risk or stakes. It never recommends features,
+  fixes, strategies, or what the builder should do next.
 - Return valid JSON only. No markdown. No reasoning. No prose outside the JSON.
 
 The JSON object must have exactly these two string keys:
 {"pressure": "...", "why_it_bites": "..."}"""
 
 DISTILL_SYSTEM = """You are Iris at the center of the spiral. Do NOT summarize, do NOT hand over a plan.
-Return the ONE smallest concrete validation action the human should take this week.
-It must be something they can do before building: call, ask, watch, test, visit, or
-find one real person/situation.
+Choose the load-bearing assumption the human should test before building.
+You decide the real actor, concrete situation, and assumption to test.
 
 Hard rules:
 - Do not say "implement", "design", "build", "add", "integrate", or "develop".
 - Do not give a product plan or feature suggestion.
-- One sentence only.
+- actor must name a real person or role, not "user", "people", or "Interview".
+- situation must name a concrete real-world moment the human can ask about,
+  watch, test, visit, or find this week.
+- assumption_to_test must name the assumption whose failure would most weaken the
+  idea.
 - Return valid JSON only. No markdown. No reasoning. No prose outside the JSON.
 
-The JSON object must have exactly this one string key:
-{"next_step": "..."}"""
+The JSON object must have exactly these three string keys:
+{"actor": "...", "situation": "...", "assumption_to_test": "..."}"""
 
 RING_PROFILES = {
     1: {
@@ -106,6 +111,9 @@ Required style:
 - Do not say "the app needs", "the app must", "user adoption", "market fit",
   "user-friendly", "seamless", "low adoption", or "existing workarounds".
 - Do not propose a feature, implementation, strategy, or solution.
+- why_it_bites must explain only the risk or stakes. Do not use recommendation
+  words like "should", "need to", "incorporate", "features", "solution", or
+  "guidance".
 - Do not invent actors or situations that are not grounded in the idea.
 - Do not reuse the same angle as any prior pressure.
 
@@ -131,12 +139,20 @@ def distill_user_prompt(
 Pressure applied through the spiral:
 {constraints}
 {rejection}
-Return one validation action, not an implementation task.
+Choose the center fields for the smallest useful validation action.
 
-Allowed starts: Call, Ask, Interview, Watch, Observe, Test, Visit, Find, Send, Sit with.
+Required fields:
+- actor: the specific real person or role the human should talk to, observe, or
+  test with.
+- situation: the concrete moment, behavior, failure, or workaround to ask about.
+- assumption_to_test: the load-bearing assumption exposed by the spiral.
+
+Banned weak fills: Interview, user, users, people, someone, customer.
 Banned verbs: implement, design, build, add, integrate, develop, launch, create.
+Do not recommend features, solutions, or product changes.
 
-Return the center point as valid JSON with next_step."""
+Return the center point as valid JSON with actor, situation, and
+assumption_to_test."""
     return _with_thinking_toggle(prompt, enable_thinking)
 
 

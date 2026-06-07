@@ -6,9 +6,9 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 1 is focused only on proving the constraint engine.
-Latest validation note: Day 1d deterministic ring profiles improved ring
-separation but still did not pass the Iris quality gate. See
-`docs/validation/day1d-deterministic-rings-minicpm41.md`.
+Latest validation note: Day 1e engine hardening added the automated gate and
+passed 2 of 3 seed spirals, but still did not pass the Iris quality gate. See
+`docs/validation/day1e-engine-gate-minicpm41.md`.
 
 ## Current Status
 
@@ -26,6 +26,7 @@ docs/                     Project planning, roadmap, and architecture notes
 docs/CODEX_LOG.md         Codex work log and validation history
 iris/                     Python package for the constraint engine
 scripts/check_repo.sh     Lightweight repository health check
+scripts/validate_gate.py  Seed spiral run plus automated sharpness gate
 tests/                    Tests, once added
 ```
 
@@ -67,6 +68,12 @@ Run the seeded Day 1 ideas:
 python3 -m iris.cli --all
 ```
 
+Run the seeded ideas with automated gate scores:
+
+```bash
+./scripts/validate_gate.py --all
+```
+
 Run a custom idea:
 
 ```bash
@@ -85,5 +92,5 @@ python3 -m iris.cli "A tool that helps new founders pick their first customer"
 ## Next Inputs Needed
 
 - MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Human judgment on whether the generated constraints are sharp or generic.
-- Approval to move from engine validation to the custom Gradio UI.
+- Human judgment on whether the Day 1e 2/3 gate result is acceptable.
+- Day 1f decision on Ring 3 alternative/repetition hardening before UI starts.

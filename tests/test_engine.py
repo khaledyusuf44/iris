@@ -3,9 +3,11 @@ from __future__ import annotations
 import unittest
 
 from iris.config import IrisConfig
-from iris.engine import IrisEngine
+from iris.engine import DistillResult, IrisEngine, PressureResult, advice_language_phrase
 from iris.errors import IrisResponseError
+from iris.gate import score_spiral
 from iris.parser import parse_json_object
+from iris.spiral import SpiralRun
 
 
 class FakeClient:
@@ -203,27 +205,68 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(result.pressure.startswith("Who"))
         self.assertEqual(len(client.messages), 2)
 
-    def test_distill_parses_next_step(self) -> None:
+    def test_pressure_retries_advice_bite(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": "What happens when elderly people miss a medication dose?", "why_it_bites": "The app should incorporate features for medication routines."}',
+                '{"pressure": "What happens when elderly people miss a medication dose?", "why_it_bites": "A missed dose can stay invisible until health consequences appear."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.pressure(
+            "An app that reminds elderly people to take their medication.", [], 1, 4
+        )
+
+        self.assertEqual(
+            result.why_it_bites,
+            "A missed dose can stay invisible until health consequences appear.",
+        )
+        self.assertEqual(len(client.messages), 2)
+
+    def test_advice_detector_allows_descriptive_need(self) -> None:
+        self.assertIsNone(
+            advice_language_phrase(
+                "A neighbor needs to rent a power saw before the weekend."
+            )
+        )
+        self.assertEqual(
+            advice_language_phrase("The app needs to include reminder features."),
+            "need to",
+        )
+
+    def test_distill_parses_center_fields_and_formats_action(self) -> None:
         engine = IrisEngine(
             FakeClient(
-                ['{"next_step": "Call one caregiver this week about missed doses."}']
+                [
+                    '{"actor": "one caregiver", "situation": "the last time a medication reminder was missed", "assumption_to_test": "reminders fail because caregivers do not see missed medication doses"}'
+                ]
             )
         )
         result = engine.distill("Medication reminder app.", ["pressure"])
-        self.assertEqual(result.next_step, "Call one caregiver this week about missed doses.")
+        self.assertEqual(result.actor, "one caregiver")
+        self.assertEqual(
+            result.next_step,
+            "Ask one caregiver to walk through this situation: the last time a medication reminder was missed, so you can test whether reminders fail because caregivers do not see missed medication doses.",
+        )
 
     def test_distill_accepts_key_alias(self) -> None:
         engine = IrisEngine(
-            FakeClient(['{"center": "Call one caregiver this week about missed doses."}'])
+            FakeClient(
+                [
+                    '{"role": "caregiver", "moment": "the last time a medication reminder was ignored", "assumption": "reminders fail because caregivers miss the medication breakdown"}'
+                ]
+            )
         )
         result = engine.distill("Medication reminder app.", ["pressure"])
-        self.assertEqual(result.next_step, "Call one caregiver this week about missed doses.")
+        self.assertEqual(result.actor, "caregiver")
+        self.assertTrue(result.next_step.startswith("Ask one caregiver to walk through"))
 
     def test_distill_retries_implementation_output(self) -> None:
         client = FakeClient(
             [
-                '{"next_step": "Implement a better reminder flow."}',
-                '{"next_step": "Ask one caregiver this week how missed doses actually happen."}',
+                '{"actor": "caregiver", "situation": "the last time a medication reminder failed at home", "assumption_to_test": "implement a better reminder flow for medication safety"}',
+                '{"actor": "caregiver", "situation": "the last time a medication reminder failed at home", "assumption_to_test": "caregivers notice missed medication doses before harm appears"}',
             ]
         )
         engine = IrisEngine(client)
@@ -232,22 +275,25 @@ class EngineTests(unittest.TestCase):
 
         self.assertEqual(
             result.next_step,
-            "Ask one caregiver this week how missed doses actually happen.",
+            "Ask one caregiver to walk through this situation: the last time a medication reminder failed at home, so you can test whether caregivers notice missed medication doses before harm appears.",
         )
         self.assertEqual(len(client.messages), 2)
 
     def test_distill_retries_too_short_output(self) -> None:
         client = FakeClient(
             [
-                '{"next_step": "Call"}',
-                '{"next_step": "Call one caregiver this week about missed doses."}',
+                '{"actor": "Interview", "situation": "Interview", "assumption_to_test": "Interview"}',
+                '{"actor": "caregiver", "situation": "the last time a medication dose was missed", "assumption_to_test": "medication reminders fail because responsibility is unclear"}',
             ]
         )
         engine = IrisEngine(client)
 
         result = engine.distill("Medication reminder app.", ["pressure"])
 
-        self.assertEqual(result.next_step, "Call one caregiver this week about missed doses.")
+        self.assertEqual(
+            result.next_step,
+            "Ask one caregiver to walk through this situation: the last time a medication dose was missed, so you can test whether medication reminders fail because responsibility is unclear.",
+        )
         self.assertEqual(len(client.messages), 2)
 
     def test_rejects_missing_pressure_field(self) -> None:
@@ -262,6 +308,75 @@ class EngineTests(unittest.TestCase):
         )
         with self.assertRaises(IrisResponseError):
             engine.pressure("Idea", [], 1, 4)
+
+    def test_gate_scores_clean_spiral(self) -> None:
+        run = SpiralRun(
+            idea="A study tool that turns lecture notes into flashcards.",
+            pressures=[
+                PressureResult(
+                    "What happens when lecture notes include half-finished diagrams?",
+                    "Students may memorize broken material before the exam.",
+                    "",
+                ),
+                PressureResult(
+                    "Who decides whether lecture notes are accurate enough for exam prep?",
+                    "The student may not know which parts are safe to trust.",
+                    "",
+                ),
+                PressureResult(
+                    "What do people use today when lecture notes are too messy for flashcards?",
+                    "Paper annotations may already cover the messy review moment.",
+                    "",
+                ),
+                PressureResult(
+                    "What if the real problem is not flashcards, but not knowing which lecture notes matter?",
+                    "The study failure may happen before cards are useful.",
+                    "",
+                ),
+            ],
+            center=DistillResult(
+                actor="student",
+                situation="the last time lecture notes felt too messy to study",
+                assumption_to_test="flashcards help only when lecture notes already mark what matters",
+                next_step="Ask one student to walk through this situation: the last time lecture notes felt too messy to study, so you can test whether flashcards help only when lecture notes already mark what matters.",
+                raw="",
+            ),
+        )
+
+        report = score_spiral(run)
+
+        self.assertTrue(report.ok)
+
+    def test_gate_flags_advice_and_weak_center(self) -> None:
+        run = SpiralRun(
+            idea="A marketplace for renting tools between neighbors.",
+            pressures=[
+                PressureResult(
+                    "What happens when a neighbor returns a borrowed tool broken?",
+                    "The marketplace should include features for disputes.",
+                    "",
+                ),
+                PressureResult(
+                    "What happens when a neighbor returns a borrowed tool broken?",
+                    "The same pressure repeats.",
+                    "",
+                ),
+            ],
+            center=DistillResult(
+                actor="Interview",
+                situation="Interview",
+                assumption_to_test="Interview",
+                next_step="Interview",
+                raw="",
+            ),
+        )
+
+        report = score_spiral(run)
+        failures = {criterion.name for criterion in report.criteria if not criterion.ok}
+
+        self.assertFalse(report.ok)
+        self.assertIn("no_advice_language", failures)
+        self.assertIn("concrete_center", failures)
 
 
 if __name__ == "__main__":

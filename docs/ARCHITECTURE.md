@@ -3,8 +3,8 @@
 ## Current State
 
 Iris is validating the constraint engine before the UI. The current codebase is a
-small Python package that calls an OpenAI-compatible MiniCPM endpoint and prints
-full idea spirals from a CLI harness.
+small Python package that calls an OpenAI-compatible MiniCPM endpoint, prints full
+idea spirals from a CLI harness, and scores seed runs with an automated gate.
 
 ## Initial Structure
 
@@ -31,9 +31,13 @@ idea + prior constraints + ring depth
   -> OpenAI-compatible chat completions endpoint
   -> safe JSON parser
   -> one pressure + why_it_bites
+  -> quality guard rejects generic, repeated, unrelated, or advice-shaped output
   -> repeat until center
   -> distill prompt
-  -> one next_step
+  -> model-filled actor + situation + assumption_to_test
+  -> mechanical next_step formatter
+  -> automated gate scores ring separation, advice language, concrete nouns,
+     repetition, and center concreteness
 ```
 
 ## Configuration
