@@ -31,13 +31,14 @@ idea + prior constraints + ring depth
   -> OpenAI-compatible chat completions endpoint
   -> safe JSON parser
   -> one pressure + why_it_bites
+     - Ring 3 also includes a model-chosen existing alternative
   -> quality guard rejects generic, repeated, unrelated, or advice-shaped output
   -> repeat until center
   -> distill prompt
   -> model-filled actor + situation + assumption_to_test
   -> mechanical next_step formatter
   -> automated gate scores ring separation, advice language, concrete nouns,
-     repetition, and center concreteness
+     existing alternative, repetition, and center concreteness
 ```
 
 ## Configuration

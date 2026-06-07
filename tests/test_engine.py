@@ -224,6 +224,85 @@ class EngineTests(unittest.TestCase):
         )
         self.assertEqual(len(client.messages), 2)
 
+    def test_existing_alternative_ring_parses_alternative(self) -> None:
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    '{"pressure": "What do people use today when neighbors need a power saw but no marketplace listing exists: hardware store rentals?", "alternative": "hardware store rentals", "why_it_bites": "A store rental may already solve the urgent access moment."}'
+                ]
+            )
+        )
+
+        result = engine.pressure(
+            "A marketplace for renting tools between neighbors.",
+            [],
+            3,
+            4,
+        )
+
+        self.assertEqual(result.alternative, "hardware store rentals")
+        self.assertIn("Alternative: hardware store rentals", result.as_constraint())
+
+    def test_existing_alternative_ring_retries_missing_alternative(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": "What do people use today when a neighbor needs a power saw but has no safety gear?", "why_it_bites": "The same safety issue repeats."}',
+                '{"pressure": "What do people use today when neighbors need a power saw quickly: hardware store rentals?", "alternative": "hardware store rentals", "why_it_bites": "A store rental may already solve the urgent access moment."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.pressure(
+            "A marketplace for renting tools between neighbors.",
+            [],
+            3,
+            4,
+        )
+
+        self.assertEqual(result.alternative, "hardware store rentals")
+        self.assertEqual(len(client.messages), 2)
+
+    def test_existing_alternative_ring_retries_prior_failure_copy(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": "What do people use today when neighbors need a power saw quickly: safety gear?", "alternative": "safety gear", "why_it_bites": "The same safety issue repeats."}',
+                '{"pressure": "What do people use today when neighbors need a power saw quickly: hardware store rentals?", "alternative": "hardware store rentals", "why_it_bites": "A store rental may already solve the urgent access moment."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.pressure(
+            "A marketplace for renting tools between neighbors.",
+            [
+                "What happens when a neighbor lacks safety gear? Why it bites: Injury appears before trust matters."
+            ],
+            3,
+            4,
+        )
+
+        self.assertEqual(result.alternative, "hardware store rentals")
+        self.assertEqual(len(client.messages), 2)
+
+    def test_existing_alternative_ring_retries_because_failure_shape(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": "What do people use today when elderly people miss medication because they are distracted?", "alternative": "caregiver check-ins", "why_it_bites": "The same failure frame repeats."}',
+                '{"pressure": "What do people use today when elderly people need medication reminders without an app?", "alternative": "caregiver check-ins", "why_it_bites": "A personal reminder may already cover the daily medication moment."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        result = engine.pressure(
+            "An app that reminds elderly people to take their medication.",
+            [],
+            3,
+            4,
+        )
+
+        self.assertEqual(result.alternative, "caregiver check-ins")
+        self.assertNotIn("because", result.pressure)
+        self.assertEqual(len(client.messages), 2)
+
     def test_advice_detector_allows_descriptive_need(self) -> None:
         self.assertIsNone(
             advice_language_phrase(
@@ -303,6 +382,7 @@ class EngineTests(unittest.TestCase):
                     '{"why_it_bites": "No pressure."}',
                     '{"why_it_bites": "No pressure."}',
                     '{"why_it_bites": "No pressure."}',
+                    '{"why_it_bites": "No pressure."}',
                 ]
             )
         )
@@ -324,9 +404,10 @@ class EngineTests(unittest.TestCase):
                     "",
                 ),
                 PressureResult(
-                    "What do people use today when lecture notes are too messy for flashcards?",
+                    "What do people use today when lecture notes are too messy for flashcards: paper annotations?",
                     "Paper annotations may already cover the messy review moment.",
                     "",
+                    alternative="paper annotations",
                 ),
                 PressureResult(
                     "What if the real problem is not flashcards, but not knowing which lecture notes matter?",

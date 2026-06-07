@@ -19,7 +19,10 @@ Hard rules:
 - Return valid JSON only. No markdown. No reasoning. No prose outside the JSON.
 
 The JSON object must have exactly these two string keys:
-{"pressure": "...", "why_it_bites": "..."}"""
+{"pressure": "...", "why_it_bites": "..."}
+
+For the Existing Alternative ring only, include one extra string key:
+{"pressure": "...", "alternative": "...", "why_it_bites": "..."}"""
 
 DISTILL_SYSTEM = """You are Iris at the center of the spiral. Do NOT summarize, do NOT hand over a plan.
 Choose the load-bearing assumption the human should test before building.
@@ -55,7 +58,8 @@ RING_PROFILES = {
         "name": "Existing Alternative",
         "lens": "alternative: what named current behavior or tool already solves enough of this?",
         "contract": "Attack differentiation by naming a concrete alternative behavior, tool, or social workaround.",
-        "required_opening": "What do people use today when",
+        "required_opening": "What do",
+        "requires_alternative": True,
     },
     4: {
         "name": "Problem Truth",
@@ -89,6 +93,7 @@ def pressure_user_prompt(
         if rejection_feedback
         else ""
     )
+    forbidden = _forbidden_prior_frames(profile, prior_constraints)
     prompt = f"""Idea:
 {idea}
 
@@ -103,6 +108,7 @@ This ring's job:
 
 Prior pressure already applied:
 {prior}
+{forbidden}
 {rejection}
 Required style:
 - Ask one hard question that starts exactly with: {profile["required_opening"]}
@@ -116,8 +122,9 @@ Required style:
   "guidance".
 - Do not invent actors or situations that are not grounded in the idea.
 - Do not reuse the same angle as any prior pressure.
+{_alternative_contract(profile)}
 
-Return exactly one new pressure as valid JSON with pressure and why_it_bites."""
+Return exactly one new pressure as valid JSON."""
     return _with_thinking_toggle(prompt, enable_thinking)
 
 
@@ -160,3 +167,41 @@ def _with_thinking_toggle(prompt: str, enable_thinking: bool) -> str:
     if not enable_thinking:
         return prompt
     return f"{prompt}\n\n/think"
+
+
+def _alternative_contract(profile: dict[str, object]) -> str:
+    if not profile.get("requires_alternative"):
+        return "- Return JSON with pressure and why_it_bites."
+    return """- Return JSON with pressure, alternative, and why_it_bites.
+- alternative must be the current workaround, behavior, tool, place, or social
+  fallback people use today instead of this idea.
+- Prefer to name the alternative inside the pressure question.
+- Do not reuse the earlier concrete failure situation. This ring is about what
+  people already do today, not another version of the same failure.
+- Do not use "because" in the pressure question. Do not explain why the failure
+  happened; ask about the underlying job people need done.
+- Do not mention "this app", "the app", "the platform", or "the product" in the
+  pressure. This ring is about what people do today without the proposed product.
+- Write the question around the underlying job people need done without this
+  idea, then use the alternative to expose why the idea may not be different
+  enough.
+- Do not use the proposed product, a missing resource, a risk, or a failure state
+  as the alternative."""
+
+
+def _forbidden_prior_frames(
+    profile: dict[str, object], prior_constraints: list[str]
+) -> str:
+    if not profile.get("requires_alternative") or not prior_constraints:
+        return ""
+    frames = "\n".join(f"- {_constraint_pressure_text(item)}" for item in prior_constraints)
+    return f"""
+Forbidden copied frames for this Existing Alternative ring:
+{frames}
+Do not reuse these concrete scenes, causes, or failure details. Generalize to the
+underlying job people need done, then name what they use today."""
+
+
+def _constraint_pressure_text(constraint: str) -> str:
+    pressure = constraint.split(" Why it bites:", 1)[0]
+    return pressure.split(" Alternative:", 1)[0]

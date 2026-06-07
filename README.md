@@ -6,15 +6,15 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 1 is focused only on proving the constraint engine.
-Latest validation note: Day 1e engine hardening added the automated gate and
-passed 2 of 3 seed spirals, but still did not pass the Iris quality gate. See
-`docs/validation/day1e-engine-gate-minicpm41.md`.
+Latest validation note: Day 1f Ring 3 hardening passed the automated Iris
+quality gate on all 3 seed spirals. See
+`docs/validation/day1f-existing-alternative-gate-minicpm41.md`.
 
 ## Current Status
 
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
-- Python validation engine: in progress.
+- Python validation engine: Day 1 gate passed.
 - Project docs: see `docs/`.
 
 ## Repo Layout
@@ -92,5 +92,5 @@ python3 -m iris.cli "A tool that helps new founders pick their first customer"
 ## Next Inputs Needed
 
 - MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Human judgment on whether the Day 1e 2/3 gate result is acceptable.
-- Day 1f decision on Ring 3 alternative/repetition hardening before UI starts.
+- Khalid confirmation that Day 1f output is demo-quality enough to unlock UI.
+- Approval to start the custom Gradio UI sprint.

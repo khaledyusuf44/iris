@@ -59,6 +59,8 @@ def print_spiral(run: SpiralRun) -> None:
     for depth, result in enumerate(run.pressures, start=1):
         print(f"Ring {depth}/{total}")
         print(f"Pressure: {result.pressure}")
+        if result.alternative:
+            print(f"Alternative: {result.alternative}")
         print(f"Why it bites: {result.why_it_bites}")
         print()
 

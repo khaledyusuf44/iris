@@ -20,8 +20,24 @@ from iris.prompts import (
 )
 
 
-MAX_MODEL_ATTEMPTS = 3
+MAX_MODEL_ATTEMPTS = 4
 PRESSURE_REPEAT_THRESHOLD = 0.68
+
+WEAK_ALTERNATIVE_FILLS = (
+    "none",
+    "nothing",
+    "unknown",
+    "n/a",
+    "the app",
+    "app",
+    "the tool",
+    "tool",
+    "platform",
+    "marketplace",
+    "failure",
+    "risk",
+    "problem",
+)
 
 BANNED_PRESSURE_PHRASES = (
     "the app needs",
@@ -106,8 +122,14 @@ class PressureResult:
     pressure: str
     why_it_bites: str
     raw: str
+    alternative: str | None = None
 
     def as_constraint(self) -> str:
+        if self.alternative:
+            return (
+                f"{self.pressure} Alternative: {self.alternative}. "
+                f"Why it bites: {self.why_it_bites}"
+            )
         return f"{self.pressure} Why it bites: {self.why_it_bites}"
 
 
@@ -225,10 +247,22 @@ class IrisEngine:
                 ):
                     pressure_text, inline_why = _split_inline_why(pressure_text)
                     why_text = inline_why or why_text
+            alternative_text = _optional_string(
+                data,
+                "alternative",
+                aliases=(
+                    "current_alternative",
+                    "existing_alternative",
+                    "workaround",
+                    "fallback",
+                    "today_alternative",
+                ),
+            )
             return PressureResult(
                 pressure=pressure_text,
                 why_it_bites=why_text,
                 raw=raw,
+                alternative=alternative_text,
             )
         except IrisResponseError as exc:
             raise IrisResponseError(f"{exc}; raw response: {raw[:500]}") from exc
@@ -378,6 +412,15 @@ def _pressure_quality_feedback(
     if any(word in normalized for word in ("implement ", "design ", "build ", "add ")):
         return "Pressure proposed implementation instead of applying pressure."
 
+    alternative_feedback = _alternative_quality_feedback(
+        result=result,
+        prior_constraints=prior_constraints,
+        idea=idea,
+        depth=depth,
+    )
+    if alternative_feedback is not None:
+        return alternative_feedback
+
     why_advice = advice_language_phrase(result.why_it_bites)
     if why_advice is not None:
         return (
@@ -387,12 +430,82 @@ def _pressure_quality_feedback(
         )
 
     for prior in prior_constraints:
-        prior_pressure = prior.split(" Why it bites:", 1)[0]
+        prior_pressure = _constraint_pressure_text(prior)
         if (
             SequenceMatcher(None, normalized, _normalize(prior_pressure)).ratio()
             >= PRESSURE_REPEAT_THRESHOLD
         ):
+            if profile and profile.get("requires_alternative"):
+                return (
+                    "Existing Alternative pressure repeats a prior failure frame. "
+                    f'It is too close to this earlier pressure: "{prior_pressure}". '
+                    "Rewrite Ring 3 around the underlying job people need done, "
+                    "not the earlier concrete failure scene. Use the "
+                    "model-chosen alternative to attack what people already do today."
+                )
             return "Pressure repeats a prior ring instead of escalating."
+
+    return None
+
+
+def _alternative_quality_feedback(
+    result: PressureResult,
+    prior_constraints: list[str],
+    idea: str,
+    depth: int,
+) -> str | None:
+    profile = RING_PROFILES.get(depth, {})
+    if not profile.get("requires_alternative"):
+        return None
+
+    if not result.alternative:
+        return (
+            "Existing Alternative ring must include an alternative field. "
+            "The model must choose the current workaround, behavior, tool, "
+            "place, or social fallback people use today."
+        )
+
+    alternative = result.alternative.strip()
+    normalized_alternative = _normalize(alternative)
+    if normalized_alternative in WEAK_ALTERNATIVE_FILLS:
+        return (
+            f'Alternative is too weak or product-shaped: "{alternative}". '
+            "Name the concrete current workaround, behavior, tool, place, or "
+            "social fallback instead."
+        )
+
+    if advice_language_phrase(alternative) is not None:
+        return (
+            "Alternative used recommendation language. Name what people already "
+            "use today, not what they should do."
+        )
+
+    if re.search(r"\bbecause\b", _normalize(result.pressure)):
+        return (
+            "Existing Alternative pressure must not explain a failure cause with "
+            '"because". Ask about the underlying job people need done and the '
+            "current workaround they use today."
+        )
+
+    proposed_product = _proposed_product_reference(result.pressure)
+    if proposed_product is not None:
+        return (
+            f'Existing Alternative pressure referenced the proposed product as "{proposed_product}". '
+            "Ask what people do today without relying on the proposed product."
+        )
+
+    if _alternative_copied_prior_failure(alternative, prior_constraints):
+        return (
+            f'Alternative "{alternative}" repeats a prior failure object or frame. '
+            "Choose the current workaround/tool/behavior people use today."
+        )
+
+    idea_keywords = _keywords(idea)
+    if normalized_alternative in idea_keywords:
+        return (
+            f'Alternative "{alternative}" is only an idea keyword. Name the '
+            "actual current workaround, tool, behavior, place, or social fallback."
+        )
 
     return None
 
@@ -426,7 +539,7 @@ def _distill_quality_feedback(result: DistillResult, idea: str) -> str | None:
                 f'"{advice}". Choose a validation assumption, not a solution.'
             )
 
-    if len(result.situation.split()) < 5:
+    if len(result.situation.split()) < 4:
         return (
             "Center situation is too short; name the real moment or behavior "
             "the human can validate this week."
@@ -465,7 +578,19 @@ def advice_language_phrase(text: str) -> str | None:
             if _has_recommendation_need(normalized):
                 return phrase
             continue
+        if phrase == "must":
+            if _has_recommendation_must(normalized):
+                return phrase
+            continue
         if re.search(rf"\b{re.escape(phrase)}\b", normalized):
+            return phrase
+    return None
+
+
+def _proposed_product_reference(text: str) -> str | None:
+    normalized = _normalize(text)
+    for phrase in ("this app", "the app", "the platform", "this platform", "the product", "this product"):
+        if phrase in normalized:
             return phrase
     return None
 
@@ -478,6 +603,19 @@ def _has_recommendation_need(normalized: str) -> bool:
         )
         or re.search(
             r"\bneed(?:s)?\s+to\s+(?:add|build|include|incorporate|implement|design|develop|create|provide|change|improve)\b",
+            normalized,
+        )
+    )
+
+
+def _has_recommendation_must(normalized: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:app|tool|platform|product|service|builder|team|we|you|they)\s+must\b",
+            normalized,
+        )
+        or re.search(
+            r"\bmust\s+(?:add|build|include|incorporate|implement|design|develop|create|provide|change|improve)\b",
             normalized,
         )
     )
@@ -512,6 +650,30 @@ def _assumption_clause(assumption: str) -> str:
 
 def _strip_terminal_punctuation(text: str) -> str:
     return text.strip().rstrip(".?!;:")
+
+
+def _optional_string(
+    data: dict[str, object], key: str, aliases: tuple[str, ...] = ()
+) -> str | None:
+    try:
+        return require_string(data, key, aliases=aliases)
+    except IrisResponseError:
+        return None
+
+
+def _alternative_copied_prior_failure(
+    alternative: str, prior_constraints: list[str]
+) -> bool:
+    normalized_alternative = _normalize(alternative)
+    return any(
+        normalized_alternative in _normalize(_constraint_pressure_text(prior))
+        for prior in prior_constraints
+    )
+
+
+def _constraint_pressure_text(constraint: str) -> str:
+    pressure = constraint.split(" Why it bites:", 1)[0]
+    return pressure.split(" Alternative:", 1)[0]
 
 
 def _normalize(text: str) -> str:
