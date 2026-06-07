@@ -120,3 +120,22 @@ Validation:
   passed. Quality gate: failed. Medication and flashcards passed; tool rental
   still failed ring separation when Ring 3 repeated the safety-gear frame from
   Ring 1.
+
+### 787293f - Harden existing alternative ring
+
+- Added a model-chosen `alternative` field for the Existing Alternative ring.
+- Added Ring 3 validation for missing, weak, product-shaped, copied, or
+  failure-shaped alternatives while keeping MiniCPM responsible for the actual
+  workaround choice.
+- Added forbidden prior-frame prompt context so Ring 3 avoids copying earlier
+  pressure scenes.
+- Updated the gate with an `existing_alternative_named` criterion and documented
+  the first full 3-seed automated gate pass.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests` passed.
+- `./scripts/check_repo.sh` passed.
+- `./scripts/validate_gate.py --all` ran against local `openbmb/minicpm4.1` and
+  passed all 3 seed spirals. Quality gate: passed.
