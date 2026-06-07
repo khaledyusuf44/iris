@@ -99,3 +99,24 @@ Validation:
 - Quality gate: failed. Ring separation improved, but center outputs still
   collapsed to `Interview` and several `why_it_bites` fields drifted into
   advice.
+
+### fd0655f - Harden engine validation gate
+
+- Added stricter advice-language validation for `why_it_bites` with model retry
+  feedback instead of code rewriting.
+- Changed center distillation so MiniCPM chooses `actor`, `situation`, and
+  `assumption_to_test`, while Iris only validates and formats the final action.
+- Added shared seed/spiral modules and `./scripts/validate_gate.py` to print
+  spirals plus automated gate scores.
+- Documented the Day 1e local MiniCPM4.1 validation run.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests` passed.
+- `./scripts/check_repo.sh` passed.
+- `./scripts/validate_gate.py --all` ran against local `openbmb/minicpm4.1` and
+  returned the expected gate failure code because only 2 of 3 seed spirals
+  passed. Quality gate: failed. Medication and flashcards passed; tool rental
+  still failed ring separation when Ring 3 repeated the safety-gear frame from
+  Ring 1.
