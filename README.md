@@ -6,16 +6,15 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 2 is focused on the Gradio product experience after
-the Day 1f engine gate passed. Latest validation note: Day 1f Ring 3 hardening
-passed the automated Iris quality gate on all 3 seed spirals. See
-`docs/validation/day1f-existing-alternative-gate-minicpm41.md`.
+the Day 1f engine gate passed. Latest validation note: Day 2b UI polish smoke
+passed locally. See `docs/validation/day2b-ui-polish-smoke.md`.
 
 ## Current Status
 
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
 - Python validation engine: Day 1 gate passed.
-- Gradio UI: first real-engine shell in progress.
+- Gradio UI: Day 2b polished reveal shell passing local smoke.
 - Project docs: see `docs/`.
 
 ## Repo Layout
@@ -103,6 +102,6 @@ endpoint environment variables set before launching.
 ## Next Inputs Needed
 
 - MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Human review of the Day 2a Gradio shell.
-- Day 2b polish pass for loading choreography, visual timing, and final demo
-  copy.
+- Human review of the Day 2b Gradio shell.
+- Decision on the next UI move: richer visual animation, deploy prep, or demo
+  script.

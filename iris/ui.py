@@ -12,6 +12,12 @@ from iris.seeds import DEFAULT_IDEAS
 
 
 RINGS = 4
+RING_NAMES = {
+    1: "Reality Contact",
+    2: "Real Actor",
+    3: "Existing Alternative",
+    4: "Problem Truth",
+}
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,8 @@ class SpiralView:
     center: CenterView | None = None
     status: str = "ready"
     message: str = ""
+    pending_depth: int | None = None
+    center_pending: bool = False
 
 
 def create_app():
@@ -109,7 +117,8 @@ def stream_spiral(idea: str) -> Iterable[str]:
             idea=cleaned_idea,
             rings=[],
             status="running",
-            message="Opening the first ring.",
+            message=f"{ring_name(1)} is active.",
+            pending_depth=1,
         )
     )
 
@@ -118,6 +127,7 @@ def stream_spiral(idea: str) -> Iterable[str]:
             result = engine.pressure(cleaned_idea, constraints, depth, RINGS)
             pressures.append(result)
             constraints.append(result.as_constraint())
+            next_depth = depth + 1 if depth < RINGS else None
             yield render_spiral_html(
                 SpiralView(
                     idea=cleaned_idea,
@@ -126,10 +136,27 @@ def stream_spiral(idea: str) -> Iterable[str]:
                         for index, item in enumerate(pressures, start=1)
                     ],
                     status="running",
-                    message=f"Ring {depth} locked.",
+                    message=(
+                        f"{ring_name(depth)} locked."
+                        if next_depth is None
+                        else f"{ring_name(next_depth)} is next."
+                    ),
+                    pending_depth=next_depth,
                 )
             )
 
+        yield render_spiral_html(
+            SpiralView(
+                idea=cleaned_idea,
+                rings=[
+                    ring_to_view(index, item)
+                    for index, item in enumerate(pressures, start=1)
+                ],
+                status="running",
+                message="Center is forming.",
+                center_pending=True,
+            )
+        )
         center = engine.distill(cleaned_idea, constraints)
     except IrisError as exc:
         yield render_spiral_html(
@@ -141,6 +168,8 @@ def stream_spiral(idea: str) -> Iterable[str]:
                 ],
                 status="error",
                 message=str(exc),
+                pending_depth=None,
+                center_pending=False,
             )
         )
         return
@@ -182,6 +211,10 @@ def seed_label(index: int) -> str:
     return labels.get(index, f"Seed {index}")
 
 
+def ring_name(depth: int) -> str:
+    return RING_NAMES.get(depth, f"Ring {depth}")
+
+
 def render_spiral_html(view: SpiralView) -> str:
     active_depth = len(view.rings)
     center_active = view.center is not None
@@ -189,11 +222,15 @@ def render_spiral_html(view: SpiralView) -> str:
     idea_text = escape(view.idea or "Awaiting idea")
     status_text = escape(view.message or default_message(view))
     rings_html = "\n".join(
-        render_ring_marker(depth, active_depth, center_active)
+        render_ring_marker(depth, active_depth, center_active, view.pending_depth)
         for depth in range(1, RINGS + 1)
     )
     ring_cards = "\n".join(render_ring_card(ring) for ring in view.rings)
+    pending_html = render_pending(view.pending_depth, view.center_pending)
     center_html = render_center(view.center)
+    results_html = f"{ring_cards}\n{pending_html}\n{center_html}".strip()
+    if not results_html:
+        results_html = '<div class="iris-empty">The rings are waiting.</div>'
 
     return f"""
 <section class="{stage_class}">
@@ -208,22 +245,34 @@ def render_spiral_html(view: SpiralView) -> str:
     <div class="iris-readout">
       <p class="iris-kicker">Current idea</p>
       <h2>{idea_text}</h2>
-      <p class="iris-status">{status_text}</p>
+      <div class="iris-status-row">
+        <span class="iris-status-dot" aria-hidden="true"></span>
+        <p class="iris-status">{status_text}</p>
+      </div>
+      {render_progress(active_depth, view.pending_depth, center_active, view.center_pending)}
     </div>
   </div>
   <div class="iris-results">
-    {ring_cards or '<div class="iris-empty">The rings are waiting.</div>'}
-    {center_html}
+    {results_html}
   </div>
 </section>
 """
 
 
-def render_ring_marker(depth: int, active_depth: int, center_active: bool) -> str:
+def render_ring_marker(
+    depth: int,
+    active_depth: int,
+    center_active: bool,
+    pending_depth: int | None = None,
+) -> str:
     state = "is-complete" if active_depth >= depth else "is-waiting"
-    if not center_active and active_depth + 1 == depth:
+    if not center_active and pending_depth == depth:
         state = "is-next"
-    return f'<div class="iris-ring iris-ring-{depth} {state}"><span>{depth}</span></div>'
+    return (
+        f'<div class="iris-ring iris-ring-{depth} {state}" '
+        f'aria-label="Ring {depth}: {escape(ring_name(depth))}">'
+        f"<span>{depth}</span></div>"
+    )
 
 
 def render_ring_card(ring: RingView) -> str:
@@ -234,10 +283,32 @@ def render_ring_card(ring: RingView) -> str:
     )
     return f"""
 <article class="iris-ring-card">
-  <div class="iris-ring-meta">Ring {ring.depth}</div>
+  <div class="iris-ring-meta">Ring {ring.depth} / {escape(ring_name(ring.depth))}</div>
   <h3>{escape(ring.pressure)}</h3>
   {alt}
   <p>{escape(ring.why_it_bites)}</p>
+</article>
+"""
+
+
+def render_pending(pending_depth: int | None, center_pending: bool) -> str:
+    if center_pending:
+        return """
+<article class="iris-pending-card is-center-pending">
+  <div class="iris-ring-meta">Center</div>
+  <div class="iris-skeleton-line wide"></div>
+  <div class="iris-skeleton-line"></div>
+  <p>Distilling the load-bearing assumption.</p>
+</article>
+"""
+    if pending_depth is None:
+        return ""
+    return f"""
+<article class="iris-pending-card">
+  <div class="iris-ring-meta">Ring {pending_depth} / {escape(ring_name(pending_depth))}</div>
+  <div class="iris-skeleton-line wide"></div>
+  <div class="iris-skeleton-line"></div>
+  <p>Applying pressure.</p>
 </article>
 """
 
@@ -248,6 +319,7 @@ def render_center(center: CenterView | None) -> str:
     return f"""
 <article class="iris-center-card">
   <div class="iris-ring-meta">Center</div>
+  <p class="iris-center-label">Next validation action</p>
   <h3>{escape(center.next_step)}</h3>
   <dl>
     <div><dt>Actor</dt><dd>{escape(center.actor)}</dd></div>
@@ -256,6 +328,27 @@ def render_center(center: CenterView | None) -> str:
   </dl>
 </article>
 """
+
+
+def render_progress(
+    active_depth: int,
+    pending_depth: int | None,
+    center_active: bool,
+    center_pending: bool,
+) -> str:
+    cells = []
+    for depth in range(1, RINGS + 1):
+        state = "is-done" if active_depth >= depth else "is-open"
+        if pending_depth == depth:
+            state = "is-live"
+        cells.append(
+            f'<span class="{state}" title="{escape(ring_name(depth))}">{depth}</span>'
+        )
+    center_state = "is-done" if center_active else "is-open"
+    if center_pending:
+        center_state = "is-live"
+    cells.append(f'<span class="{center_state}" title="Center">C</span>')
+    return f'<div class="iris-progress">{"".join(cells)}</div>'
 
 
 def default_message(view: SpiralView) -> str:
@@ -442,6 +535,65 @@ footer {
   font-size: 15px;
 }
 
+.iris-status-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.iris-status-row p {
+  margin: 0;
+}
+
+.iris-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--iris-cyan);
+  box-shadow: 0 0 18px rgba(110, 231, 249, 0.48);
+}
+
+.status-complete .iris-status-dot {
+  background: var(--iris-green);
+  box-shadow: 0 0 18px rgba(159, 232, 112, 0.48);
+}
+
+.status-error .iris-status-dot {
+  background: var(--iris-red);
+  box-shadow: 0 0 18px rgba(255, 107, 107, 0.46);
+}
+
+.iris-progress {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.iris-progress span {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--iris-line);
+  color: var(--iris-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.iris-progress .is-done {
+  color: #0c1117;
+  background: var(--iris-green);
+  border-color: var(--iris-green);
+}
+
+.iris-progress .is-live {
+  color: var(--iris-cyan);
+  border-color: rgba(110, 231, 249, 0.74);
+  box-shadow: 0 0 22px rgba(110, 231, 249, 0.2);
+}
+
 .iris-results {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -451,7 +603,8 @@ footer {
 
 .iris-ring-card,
 .iris-center-card,
-.iris-empty {
+.iris-empty,
+.iris-pending-card {
   border: 1px solid var(--iris-line);
   border-radius: 8px;
   background: var(--iris-panel);
@@ -468,7 +621,8 @@ footer {
 
 .iris-ring-card p,
 .iris-alt,
-.iris-center-card dd {
+.iris-center-card dd,
+.iris-pending-card p {
   margin: 0;
   color: var(--iris-muted);
   line-height: 1.4;
@@ -493,6 +647,19 @@ footer {
   border-color: rgba(159, 232, 112, 0.34);
 }
 
+.iris-center-label {
+  margin: 0 0 6px;
+  color: var(--iris-green);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.iris-center-card h3 {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
 .iris-center-card dl {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -515,6 +682,40 @@ footer {
   color: var(--iris-muted);
 }
 
+.iris-pending-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 148px;
+  border-color: rgba(110, 231, 249, 0.26);
+}
+
+.iris-pending-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(110, 231, 249, 0.08), transparent);
+  transform: translateX(-100%);
+  animation: iris-sweep 1.7s ease-in-out infinite;
+}
+
+.iris-pending-card.is-center-pending {
+  grid-column: 1 / -1;
+  border-color: rgba(159, 232, 112, 0.28);
+}
+
+.iris-skeleton-line {
+  position: relative;
+  height: 12px;
+  width: 68%;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.iris-skeleton-line.wide {
+  width: 92%;
+}
+
 .status-error .iris-status,
 .status-error .iris-kicker {
   color: var(--iris-red);
@@ -528,6 +729,11 @@ footer {
 @keyframes iris-ring-breathe {
   0%, 100% { box-shadow: 0 0 14px rgba(110, 231, 249, 0.08); }
   50% { box-shadow: 0 0 34px rgba(110, 231, 249, 0.22); }
+}
+
+@keyframes iris-sweep {
+  0% { transform: translateX(-100%); }
+  70%, 100% { transform: translateX(100%); }
 }
 
 @media (max-width: 860px) {

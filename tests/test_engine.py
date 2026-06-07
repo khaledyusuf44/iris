@@ -486,6 +486,44 @@ class EngineTests(unittest.TestCase):
         self.assertIn("Ask one neighbor", html)
         self.assertIn("status-complete", html)
 
+    def test_ui_render_shows_pending_ring_state(self) -> None:
+        html = render_spiral_html(
+            SpiralView(
+                idea="A marketplace for renting tools between neighbors.",
+                rings=[],
+                status="running",
+                message="Real Actor is next.",
+                pending_depth=2,
+            )
+        )
+
+        self.assertIn("Ring 2 / Real Actor", html)
+        self.assertIn("Applying pressure.", html)
+        self.assertIn("iris-pending-card", html)
+        self.assertIn('class="is-live" title="Real Actor"', html)
+        self.assertNotIn("The rings are waiting.", html)
+
+    def test_ui_render_shows_center_pending_state(self) -> None:
+        html = render_spiral_html(
+            SpiralView(
+                idea="A study tool that turns lecture notes into flashcards.",
+                rings=[
+                    RingView(
+                        depth=4,
+                        pressure="What if the real problem is note triage?",
+                        why_it_bites="The study failure may happen before cards are useful.",
+                    )
+                ],
+                status="running",
+                message="Center is forming.",
+                center_pending=True,
+            )
+        )
+
+        self.assertIn("Distilling the load-bearing assumption.", html)
+        self.assertIn("is-center-pending", html)
+        self.assertIn('class="is-live" title="Center"', html)
+
     def test_ui_render_escapes_user_content(self) -> None:
         html = render_spiral_html(
             SpiralView(

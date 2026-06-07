@@ -2,10 +2,11 @@
 
 ## Current State
 
-Iris is validating the constraint engine before the UI. The current codebase is a
-small Python package that calls an OpenAI-compatible MiniCPM endpoint, prints full
-idea spirals from a CLI harness, scores seed runs with an automated gate, and
-serves a Gradio interface through `app.py`.
+Iris has a validated constraint engine and is shaping the Gradio product
+experience around it. The current codebase is a small Python package that calls
+an OpenAI-compatible MiniCPM endpoint, prints full idea spirals from a CLI
+harness, scores seed runs with an automated gate, and serves a Gradio interface
+through `app.py`.
 
 ## Initial Structure
 
@@ -50,8 +51,10 @@ app.py
   -> iris.ui.create_app()
   -> Gradio Blocks shell
   -> stream_spiral()
+  -> pending ring / center HTML state
   -> IrisEngine pressure/distill calls
   -> custom HTML ring stage updates after each model result
+  -> final center action card
 ```
 
 ## Configuration
