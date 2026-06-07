@@ -8,6 +8,7 @@ from iris.errors import IrisResponseError
 from iris.gate import score_spiral
 from iris.parser import parse_json_object
 from iris.spiral import SpiralRun
+from iris.ui import CenterView, RingView, SpiralView, render_spiral_html
 
 
 class FakeClient:
@@ -458,6 +459,43 @@ class EngineTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertIn("no_advice_language", failures)
         self.assertIn("concrete_center", failures)
+
+    def test_ui_render_includes_alternative_and_center(self) -> None:
+        html = render_spiral_html(
+            SpiralView(
+                idea="A marketplace for renting tools between neighbors.",
+                rings=[
+                    RingView(
+                        depth=3,
+                        pressure="What do neighbors do today?",
+                        why_it_bites="Informal trust may already cover the moment.",
+                        alternative="Informal agreements",
+                    )
+                ],
+                center=CenterView(
+                    actor="neighbor",
+                    situation="renting a power saw",
+                    assumption_to_test="informal agreements are not enough",
+                    next_step="Ask one neighbor to walk through this situation.",
+                ),
+                status="complete",
+            )
+        )
+
+        self.assertIn("Informal agreements", html)
+        self.assertIn("Ask one neighbor", html)
+        self.assertIn("status-complete", html)
+
+    def test_ui_render_escapes_user_content(self) -> None:
+        html = render_spiral_html(
+            SpiralView(
+                idea="<script>alert('x')</script>",
+                rings=[],
+            )
+        )
+
+        self.assertIn("&lt;script&gt;", html)
+        self.assertNotIn("<script>alert", html)
 
 
 if __name__ == "__main__":

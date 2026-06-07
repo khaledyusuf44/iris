@@ -4,7 +4,8 @@
 
 Iris is validating the constraint engine before the UI. The current codebase is a
 small Python package that calls an OpenAI-compatible MiniCPM endpoint, prints full
-idea spirals from a CLI harness, and scores seed runs with an automated gate.
+idea spirals from a CLI harness, scores seed runs with an automated gate, and
+serves a Gradio interface through `app.py`.
 
 ## Initial Structure
 
@@ -13,6 +14,7 @@ iris/     Constraint engine package
 tests/    Automated tests
 docs/     Project documentation and decisions
 scripts/  Local maintenance and validation scripts
+app.py    Gradio / Hugging Face Spaces entrypoint
 ```
 
 ## Architecture Principles
@@ -39,6 +41,17 @@ idea + prior constraints + ring depth
   -> mechanical next_step formatter
   -> automated gate scores ring separation, advice language, concrete nouns,
      existing alternative, repetition, and center concreteness
+```
+
+## UI Flow
+
+```text
+app.py
+  -> iris.ui.create_app()
+  -> Gradio Blocks shell
+  -> stream_spiral()
+  -> IrisEngine pressure/distill calls
+  -> custom HTML ring stage updates after each model result
 ```
 
 ## Configuration

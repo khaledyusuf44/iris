@@ -5,9 +5,9 @@ think for you; it applies pressure that makes you think deeper. A fuzzy idea is
 pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
-Status: in progress. Day 1 is focused only on proving the constraint engine.
-Latest validation note: Day 1f Ring 3 hardening passed the automated Iris
-quality gate on all 3 seed spirals. See
+Status: in progress. Day 2 is focused on the Gradio product experience after
+the Day 1f engine gate passed. Latest validation note: Day 1f Ring 3 hardening
+passed the automated Iris quality gate on all 3 seed spirals. See
 `docs/validation/day1f-existing-alternative-gate-minicpm41.md`.
 
 ## Current Status
@@ -15,6 +15,7 @@ quality gate on all 3 seed spirals. See
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
 - Python validation engine: Day 1 gate passed.
+- Gradio UI: first real-engine shell in progress.
 - Project docs: see `docs/`.
 
 ## Repo Layout
@@ -22,6 +23,7 @@ quality gate on all 3 seed spirals. See
 ```text
 AGENTS.md                 AI/core contributor operating notes
 CONTRIBUTING.md           Human contributor workflow
+app.py                    Hugging Face Spaces / Gradio entrypoint
 docs/                     Project planning, roadmap, and architecture notes
 docs/CODEX_LOG.md         Codex work log and validation history
 iris/                     Python package for the constraint engine
@@ -80,6 +82,15 @@ Run a custom idea:
 python3 -m iris.cli "A tool that helps new founders pick their first customer"
 ```
 
+## Run the UI
+
+```bash
+python3 app.py
+```
+
+The Gradio UI calls the same Iris engine as the CLI and gate. Keep the MiniCPM
+endpoint environment variables set before launching.
+
 ## Working Agreements
 
 - Keep `main` clean and working.
@@ -92,5 +103,6 @@ python3 -m iris.cli "A tool that helps new founders pick their first customer"
 ## Next Inputs Needed
 
 - MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Khalid confirmation that Day 1f output is demo-quality enough to unlock UI.
-- Approval to start the custom Gradio UI sprint.
+- Human review of the Day 2a Gradio shell.
+- Day 2b polish pass for loading choreography, visual timing, and final demo
+  copy.
