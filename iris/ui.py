@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import escape
 from typing import Iterable
 
@@ -45,6 +45,17 @@ class SpiralView:
     message: str = ""
     pending_depth: int | None = None
     center_pending: bool = False
+    selected_depth: int | None = None
+
+
+@dataclass
+class SpatialSession:
+    idea: str = ""
+    pressures: list[PressureResult] = field(default_factory=list)
+    center: CenterView | None = None
+    status: str = "ready"
+    message: str = ""
+    selected_depth: int | None = None
 
 
 def create_app():
@@ -55,10 +66,194 @@ def create_app():
         css=APP_CSS,
         analytics_enabled=False,
     ) as demo:
-        gr.HTML(
-            render_spiral_html(SpiralView(idea=DEFAULT_IDEAS[0], rings=[])),
+        session = gr.State(SpatialSession())
+        stage = gr.HTML(
+            render_spiral_html(session_to_view(SpatialSession())),
             elem_id="iris-stage",
         )
+        nucleus = gr.Button("", elem_id="iris-nucleus-click")
+        electron_buttons = [
+            gr.Button(
+                f"R{depth}",
+                visible=False,
+                elem_id=f"iris-electron-control-{depth}",
+                elem_classes=["iris-electron-control"],
+            )
+            for depth in range(1, RINGS + 1)
+        ]
+
+        with gr.Group(visible=False, elem_id="iris-idea-modal") as modal:
+            with gr.Column(elem_classes=["iris-modal-card"]):
+                gr.Markdown("`NEURAL INJECTION PROTOCOL`")
+                gr.Markdown("## What idea shall we explore today?")
+                idea_input = gr.Textbox(
+                    label="",
+                    lines=4,
+                    max_lines=6,
+                    placeholder="A marketplace for renting tools between neighbors.",
+                    value=DEFAULT_IDEAS[0],
+                    elem_id="iris-idea-input",
+                )
+                with gr.Row(elem_classes=["iris-modal-actions"]):
+                    close_modal = gr.Button("Close", variant="secondary")
+                    proceed = gr.Button("Proceed", variant="primary", elem_id="iris-proceed")
+
+        outputs = [session, stage, modal, idea_input, *electron_buttons]
+
+        def package(
+            next_session: SpatialSession,
+            *,
+            modal_visible: bool = False,
+            idea_value: str | None = None,
+            pending_depth: int | None = None,
+            center_pending: bool = False,
+        ):
+            view = session_to_view(
+                next_session,
+                pending_depth=pending_depth,
+                center_pending=center_pending,
+            )
+            idea_update = (
+                gr.update(value=idea_value)
+                if idea_value is not None
+                else gr.update()
+            )
+            return (
+                next_session,
+                render_spiral_html(view),
+                gr.update(visible=modal_visible),
+                idea_update,
+                *electron_button_updates(gr, next_session),
+            )
+
+        def open_modal(next_session: SpatialSession):
+            return package(
+                next_session,
+                modal_visible=True,
+                idea_value=next_session.idea or DEFAULT_IDEAS[0],
+            )
+
+        def close_modal_handler(next_session: SpatialSession):
+            return package(next_session, modal_visible=False)
+
+        def proceed_handler(idea: str):
+            cleaned_idea = idea.strip()
+            if not cleaned_idea:
+                next_session = SpatialSession(
+                    idea="",
+                    status="error",
+                    message="Enter one raw idea first.",
+                )
+                yield package(next_session, modal_visible=True, idea_value=idea)
+                return
+
+            next_session = SpatialSession(
+                idea=cleaned_idea,
+                status="running",
+                message=f"{ring_name(1)} is active.",
+            )
+            yield package(
+                next_session,
+                modal_visible=False,
+                idea_value=cleaned_idea,
+                pending_depth=1,
+            )
+
+            try:
+                result = IrisEngine().pressure(cleaned_idea, [], 1, RINGS)
+            except IrisError as exc:
+                next_session.status = "error"
+                next_session.message = str(exc)
+                yield package(next_session, modal_visible=False)
+                return
+
+            next_session.pressures.append(result)
+            next_session.status = "waiting"
+            next_session.message = "Click the R1 electron to descend."
+            next_session.selected_depth = 1
+            yield package(next_session, modal_visible=False)
+
+        def make_electron_handler(depth: int):
+            def electron_handler(next_session: SpatialSession):
+                if depth > len(next_session.pressures):
+                    yield package(next_session, modal_visible=False)
+                    return
+
+                next_session.selected_depth = depth
+                if next_session.center is not None:
+                    next_session.status = "complete"
+                    next_session.message = "Center reached."
+                    yield package(next_session, modal_visible=False)
+                    return
+
+                if depth != len(next_session.pressures):
+                    next_session.status = "inspecting"
+                    next_session.message = f"{ring_name(depth)} selected."
+                    yield package(next_session, modal_visible=False)
+                    return
+
+                constraints = [item.as_constraint() for item in next_session.pressures]
+                if len(next_session.pressures) >= RINGS:
+                    next_session.status = "running"
+                    next_session.message = "Center is forming."
+                    yield package(
+                        next_session,
+                        modal_visible=False,
+                        center_pending=True,
+                    )
+                    try:
+                        center = IrisEngine().distill(next_session.idea, constraints)
+                    except IrisError as exc:
+                        next_session.status = "error"
+                        next_session.message = str(exc)
+                        yield package(next_session, modal_visible=False)
+                        return
+
+                    next_session.center = CenterView(
+                        actor=center.actor,
+                        situation=center.situation,
+                        assumption_to_test=center.assumption_to_test,
+                        next_step=center.next_step,
+                    )
+                    next_session.status = "complete"
+                    next_session.message = "Center reached."
+                    yield package(next_session, modal_visible=False)
+                    return
+
+                next_depth = len(next_session.pressures) + 1
+                next_session.status = "running"
+                next_session.message = f"{ring_name(next_depth)} is active."
+                yield package(
+                    next_session,
+                    modal_visible=False,
+                    pending_depth=next_depth,
+                )
+                try:
+                    result = IrisEngine().pressure(
+                        next_session.idea,
+                        constraints,
+                        next_depth,
+                        RINGS,
+                    )
+                except IrisError as exc:
+                    next_session.status = "error"
+                    next_session.message = str(exc)
+                    yield package(next_session, modal_visible=False)
+                    return
+
+                next_session.pressures.append(result)
+                next_session.selected_depth = next_depth
+                next_session.status = "waiting"
+                next_session.message = f"Click the R{next_depth} electron to descend."
+                yield package(next_session, modal_visible=False)
+
+            return electron_handler
+
+        nucleus.click(open_modal, inputs=session, outputs=outputs)
+        close_modal.click(close_modal_handler, inputs=session, outputs=outputs)
+        proceed.click(proceed_handler, inputs=idea_input, outputs=outputs)
+        for depth, electron in enumerate(electron_buttons, start=1):
+            electron.click(make_electron_handler(depth), inputs=session, outputs=outputs)
 
     return demo
 
@@ -173,6 +368,34 @@ def ring_name(depth: int) -> str:
     return RING_NAMES.get(depth, f"Ring {depth}")
 
 
+def session_to_view(
+    session: SpatialSession,
+    *,
+    pending_depth: int | None = None,
+    center_pending: bool = False,
+) -> SpiralView:
+    return SpiralView(
+        idea=session.idea,
+        rings=[
+            ring_to_view(index, item)
+            for index, item in enumerate(session.pressures, start=1)
+        ],
+        center=session.center,
+        status=session.status,
+        message=session.message,
+        pending_depth=pending_depth,
+        center_pending=center_pending,
+        selected_depth=session.selected_depth,
+    )
+
+
+def electron_button_updates(gr, session: SpatialSession):
+    return [
+        gr.update(value=f"R{depth}", visible=depth <= len(session.pressures))
+        for depth in range(1, RINGS + 1)
+    ]
+
+
 def render_spiral_html(view: SpiralView) -> str:
     depth = len(view.rings)
     status_text = escape(view.message or default_message(view))
@@ -235,19 +458,29 @@ def render_spiral_html(view: SpiralView) -> str:
 def render_primary_title(view: SpiralView) -> str:
     if view.center is not None:
         return f"<h1>{escape(view.center.next_step)}</h1>"
-    if view.rings:
-        latest = view.rings[-1]
-        return f"<h1>{escape(latest.pressure)}</h1>"
+    ring = selected_ring(view)
+    if ring is not None:
+        return f"<h1>{escape(ring.pressure)}</h1>"
     return "<h1>The universe is waiting for your input.</h1>"
 
 
 def render_primary_subtitle(view: SpiralView) -> str:
     if view.center is not None:
         return '<p class="iris-hero-label">Center point reached.</p>'
-    if view.rings:
-        latest = view.rings[-1]
-        return f'<p class="iris-hero-label">{escape(latest.why_it_bites)}</p>'
+    ring = selected_ring(view)
+    if ring is not None:
+        return f'<p class="iris-hero-label">{escape(ring.why_it_bites)}</p>'
     return '<p class="iris-hero-label">Deploy neural probes to map conceptual space.</p>'
+
+
+def selected_ring(view: SpiralView) -> RingView | None:
+    if not view.rings:
+        return None
+    if view.selected_depth is not None:
+        for ring in view.rings:
+            if ring.depth == view.selected_depth:
+                return ring
+    return view.rings[-1]
 
 
 def render_electron_shell(view: SpiralView) -> str:
@@ -271,9 +504,10 @@ def render_electron_shell(view: SpiralView) -> str:
     for index, ring in enumerate(nodes[:5]):
         label = "CENTER" if ring.depth > RINGS else f"R{ring.depth}"
         title = escape(ring.pressure)
+        state = " is-selected" if ring.depth == view.selected_depth else ""
         items.append(
             f"""
-      <button class="iris-electron iris-electron-{positions[index]}" type="button">
+      <button class="iris-electron iris-electron-{positions[index]}{state}" type="button">
         <span>{escape(label)}</span>
         <small>{title}</small>
       </button>
@@ -290,10 +524,11 @@ def render_context_panel(view: SpiralView) -> str:
     if view.center is not None:
         body = escape(view.center.assumption_to_test)
         eyebrow = "CENTER ASSUMPTION"
-    elif view.rings:
-        latest = view.rings[-1]
-        body = escape(latest.alternative or latest.why_it_bites)
-        eyebrow = f"{ring_name(latest.depth).upper()} SIGNAL"
+    elif selected_ring(view) is not None:
+        ring = selected_ring(view)
+        assert ring is not None
+        body = escape(ring.alternative or ring.why_it_bites)
+        eyebrow = f"{ring_name(ring.depth).upper()} SIGNAL"
     else:
         body = "Ready to receive a raw idea."
         eyebrow = "NEURAL TELEMETRY"
@@ -352,6 +587,10 @@ def default_message(view: SpiralView) -> str:
         return "Center reached."
     if view.status == "running":
         return "Mapping."
+    if view.status == "waiting":
+        return "Awaiting descent."
+    if view.status == "inspecting":
+        return "Electron selected."
     if view.status == "error":
         return "Signal interrupted."
     return "Idle"
@@ -412,6 +651,174 @@ body,
 
 footer {
   display: none !important;
+}
+
+#iris-nucleus-click {
+  position: fixed !important;
+  top: calc(50vh - 156px);
+  left: calc(50vw - 128px);
+  z-index: 60 !important;
+  width: 256px !important;
+  height: 256px !important;
+  min-width: 256px !important;
+  min-height: 256px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  border-radius: 50% !important;
+  color: transparent !important;
+  box-shadow: none !important;
+  opacity: 0.01;
+  cursor: pointer;
+}
+
+#iris-idea-modal {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 100 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 24px !important;
+  border: 0 !important;
+  background: rgba(5, 5, 8, 0.82) !important;
+  backdrop-filter: blur(20px);
+}
+
+#iris-idea-modal .iris-modal-card {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(680px, calc(100vw - 48px)) !important;
+  padding: 48px !important;
+  border: 1px solid rgba(180, 203, 206, 0.24) !important;
+  border-radius: 32px !important;
+  background: rgba(19, 19, 27, 0.48) !important;
+  box-shadow: 0 0 60px rgba(0, 218, 243, 0.14);
+  backdrop-filter: blur(22px);
+}
+
+#iris-idea-modal .iris-modal-card,
+#iris-idea-modal .iris-modal-card * {
+  color: var(--iris-text);
+}
+
+#iris-idea-modal .iris-modal-card p {
+  margin: 0 0 8px;
+  color: var(--iris-cyan-soft);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+#iris-idea-modal .iris-modal-card h2 {
+  margin: 0 0 24px;
+  font-size: 32px;
+  font-weight: 300;
+  line-height: 1.2;
+}
+
+#iris-idea-input,
+#iris-idea-input label,
+#iris-idea-input > div {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+#iris-idea-input textarea {
+  min-height: 132px !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(180, 203, 206, 0.24) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--iris-text) !important;
+  font-family: "JetBrains Mono", ui-monospace, monospace !important;
+  font-size: 18px !important;
+  line-height: 1.55 !important;
+  box-shadow: none !important;
+}
+
+#iris-idea-input textarea:focus {
+  border-bottom-color: var(--iris-cyan) !important;
+  box-shadow: 0 12px 30px rgba(0, 218, 243, 0.08) !important;
+}
+
+.iris-modal-actions {
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.iris-modal-actions button,
+#iris-proceed button {
+  min-width: 136px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(195, 245, 255, 0.6) !important;
+  background: transparent !important;
+  color: var(--iris-cyan-soft) !important;
+  font-family: "JetBrains Mono", ui-monospace, monospace !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+}
+
+#iris-proceed button {
+  box-shadow: 0 0 18px rgba(0, 218, 243, 0.22) !important;
+}
+
+#iris-proceed button:hover,
+.iris-modal-actions button:hover {
+  background: var(--iris-cyan) !important;
+  color: #00363d !important;
+}
+
+.iris-electron-control {
+  position: fixed !important;
+  z-index: 70 !important;
+  width: 58px !important;
+  height: 58px !important;
+  min-width: 58px !important;
+  min-height: 58px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  border: 1px solid rgba(0, 218, 243, 0.74) !important;
+  border-radius: 50% !important;
+  background: rgba(0, 218, 243, 0.13) !important;
+  color: var(--iris-cyan-soft) !important;
+  font-family: "JetBrains Mono", ui-monospace, monospace !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  box-shadow: 0 0 22px rgba(0, 218, 243, 0.3) !important;
+}
+
+.iris-electron-control:hover {
+  background: rgba(0, 218, 243, 0.24) !important;
+  box-shadow: 0 0 34px rgba(0, 218, 243, 0.46) !important;
+  transform: scale(1.08);
+}
+
+#iris-electron-control-1 {
+  top: calc(50vh - 224px);
+  left: calc(50vw - 29px);
+}
+
+#iris-electron-control-2 {
+  top: calc(50vh - 62px);
+  left: calc(50vw + 132px);
+}
+
+#iris-electron-control-3 {
+  top: calc(50vh + 108px);
+  left: calc(50vw + 72px);
+}
+
+#iris-electron-control-4 {
+  top: calc(50vh + 108px);
+  left: calc(50vw - 132px);
 }
 
 .iris-spatial {

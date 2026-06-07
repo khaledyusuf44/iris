@@ -8,7 +8,14 @@ from iris.errors import IrisResponseError
 from iris.gate import score_spiral
 from iris.parser import parse_json_object
 from iris.spiral import SpiralRun
-from iris.ui import CenterView, RingView, SpiralView, render_spiral_html
+from iris.ui import (
+    CenterView,
+    RingView,
+    SpatialSession,
+    SpiralView,
+    render_spiral_html,
+    session_to_view,
+)
 
 
 class FakeClient:
@@ -526,6 +533,28 @@ class EngineTests(unittest.TestCase):
         self.assertIn("Center is forming.", html)
         self.assertIn("Center forming", html)
         self.assertIn(">CENTER<", html)
+
+    def test_ui_session_to_view_selects_latest_pressure(self) -> None:
+        session = SpatialSession(
+            idea="A marketplace for renting tools between neighbors.",
+            pressures=[
+                PressureResult(
+                    "What happens when a borrowed tool breaks?",
+                    "The trust failure appears before marketplace supply matters.",
+                    "",
+                )
+            ],
+            status="waiting",
+            message="Click the R1 electron to descend.",
+            selected_depth=1,
+        )
+
+        html = render_spiral_html(session_to_view(session))
+
+        self.assertIn("What happens when a borrowed tool breaks?", html)
+        self.assertIn("The trust failure appears", html)
+        self.assertIn(">R1<", html)
+        self.assertIn("status-waiting", html)
 
     def test_ui_render_escapes_user_content(self) -> None:
         html = render_spiral_html(

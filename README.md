@@ -6,16 +6,15 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 2 is focused on the Gradio product experience after
-the Day 1f engine gate passed. Latest validation note: Stage 1 static Stitch
-layout is ready for visual confirmation. See
-`docs/validation/day2-stage1-stitch-static.md`.
+the Day 1f engine gate passed. Latest validation note: Stage 2 core Stitch flow
+works end to end. See `docs/validation/day2-stage2-core-flow.md`.
 
 ## Current Status
 
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
 - Python validation engine: Day 1 gate passed.
-- Gradio UI: Day 2 Stage 1 static Stitch layout ready for review.
+- Gradio UI: Day 2 Stage 2 core spatial flow passing local browser smoke.
 - Project docs: see `docs/`.
 
 ## Repo Layout
@@ -105,5 +104,6 @@ endpoint environment variables set before launching.
 ## Next Inputs Needed
 
 - MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Human review of the Day 2 Stage 1 static Stitch layout.
-- Approval to proceed to Stage 2: modal input plus engine-backed electron flow.
+- Human review of the Day 2 Stage 2 clickable Stitch flow.
+- Approval to proceed to Stage 3: forming particles, orbit drift, and smooth
+  zoom transitions.
