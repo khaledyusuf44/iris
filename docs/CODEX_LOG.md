@@ -158,3 +158,21 @@ Validation:
 - Browser smoke test passed at `http://127.0.0.1:7860`: desktop and mobile
   layouts rendered without horizontal overflow, and a real UI run completed 4
   rings plus center from local MiniCPM4.1.
+
+### 0aef82c - Polish Gradio spiral reveal
+
+- Added named UI ring stages, live progress pills, and pending skeleton cards for
+  ring and center model work.
+- Strengthened the center presentation as the final validation action while
+  leaving engine judgment untouched.
+- Documented the Day 2b UI smoke pass.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke test passed at `http://127.0.0.1:7860`: desktop and mobile
+  layouts had no horizontal overflow, center pending appeared during a real run,
+  the run completed with 4 rings plus center, and browser console errors were
+  empty.
