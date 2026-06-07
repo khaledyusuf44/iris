@@ -176,3 +176,32 @@ Validation:
   layouts had no horizontal overflow, center pending appeared during a real run,
   the run completed with 4 rings plus center, and browser console errors were
   empty.
+
+### e64f5cd - Add Stitch atomic UI design export
+
+- Added the Google Stitch atomic/infinite-zoom export under
+  `stitch_iris_atomic_infinite_zoom/`.
+- Preserved the Stitch HTML/CSS references, screenshots, design tokens, and UX
+  flow notes as the source of truth for the Day 2 spatial UI.
+
+Validation:
+
+- Source export reviewed locally; `.DS_Store` stayed ignored.
+
+### 9839374 - Build Stage 1 Stitch spatial canvas
+
+- Replaced the previous Gradio form/card shell with a full-bleed static spatial
+  canvas matching the Stitch beginning state.
+- Added top navigation, left depth rail, faint orbit rings, stardust, glowing
+  central nucleus, status/depth chips, and bottom hero copy.
+- Kept the validated Iris engine unchanged; Stage 2 will wire interaction back
+  to the existing server-side engine path.
+- Added the Stage 1 screenshot and validation note.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860`: desktop `1440x900` and
+  mobile `390x844` rendered full-bleed with no horizontal overflow.
