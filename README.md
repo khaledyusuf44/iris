@@ -6,15 +6,16 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 2 is focused on the Gradio product experience after
-the Day 1f engine gate passed. Latest validation note: Day 2b UI polish smoke
-passed locally. See `docs/validation/day2b-ui-polish-smoke.md`.
+the Day 1f engine gate passed. Latest validation note: Stage 1 static Stitch
+layout is ready for visual confirmation. See
+`docs/validation/day2-stage1-stitch-static.md`.
 
 ## Current Status
 
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
 - Python validation engine: Day 1 gate passed.
-- Gradio UI: Day 2b polished reveal shell passing local smoke.
+- Gradio UI: Day 2 Stage 1 static Stitch layout ready for review.
 - Project docs: see `docs/`.
 
 ## Repo Layout
@@ -28,6 +29,8 @@ docs/CODEX_LOG.md         Codex work log and validation history
 iris/                     Python package for the constraint engine
 scripts/check_repo.sh     Lightweight repository health check
 scripts/validate_gate.py  Seed spiral run plus automated sharpness gate
+stitch_iris_atomic_infinite_zoom/
+                          Google Stitch atomic UI export
 tests/                    Tests, once added
 ```
 
@@ -102,6 +105,5 @@ endpoint environment variables set before launching.
 ## Next Inputs Needed
 
 - MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Human review of the Day 2b Gradio shell.
-- Decision on the next UI move: richer visual animation, deploy prep, or demo
-  script.
+- Human review of the Day 2 Stage 1 static Stitch layout.
+- Approval to proceed to Stage 2: modal input plus engine-backed electron flow.

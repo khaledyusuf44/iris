@@ -460,7 +460,7 @@ class EngineTests(unittest.TestCase):
         self.assertIn("no_advice_language", failures)
         self.assertIn("concrete_center", failures)
 
-    def test_ui_render_includes_alternative_and_center(self) -> None:
+    def test_ui_render_includes_spatial_canvas_and_center(self) -> None:
         html = render_spiral_html(
             SpiralView(
                 idea="A marketplace for renting tools between neighbors.",
@@ -482,8 +482,11 @@ class EngineTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("Informal agreements", html)
+        self.assertIn("iris-spatial", html)
+        self.assertIn("IRIS", html)
+        self.assertIn("Core", html)
         self.assertIn("Ask one neighbor", html)
+        self.assertIn("informal agreements are not enough", html)
         self.assertIn("status-complete", html)
 
     def test_ui_render_shows_pending_ring_state(self) -> None:
@@ -497,11 +500,11 @@ class EngineTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("Ring 2 / Real Actor", html)
-        self.assertIn("Applying pressure.", html)
-        self.assertIn("iris-pending-card", html)
-        self.assertIn('class="is-live" title="Real Actor"', html)
-        self.assertNotIn("The rings are waiting.", html)
+        self.assertIn("Real Actor is next.", html)
+        self.assertIn("Real Actor forming", html)
+        self.assertIn("iris-electron", html)
+        self.assertIn(">R2<", html)
+        self.assertNotIn("iris-pending-card", html)
 
     def test_ui_render_shows_center_pending_state(self) -> None:
         html = render_spiral_html(
@@ -520,9 +523,9 @@ class EngineTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("Distilling the load-bearing assumption.", html)
-        self.assertIn("is-center-pending", html)
-        self.assertIn('class="is-live" title="Center"', html)
+        self.assertIn("Center is forming.", html)
+        self.assertIn("Center forming", html)
+        self.assertIn(">CENTER<", html)
 
     def test_ui_render_escapes_user_content(self) -> None:
         html = render_spiral_html(

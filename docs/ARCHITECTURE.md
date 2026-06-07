@@ -6,7 +6,8 @@ Iris has a validated constraint engine and is shaping the Gradio product
 experience around it. The current codebase is a small Python package that calls
 an OpenAI-compatible MiniCPM endpoint, prints full idea spirals from a CLI
 harness, scores seed runs with an automated gate, and serves a Gradio interface
-through `app.py`.
+through `app.py`. The current UI checkpoint is the static Stage 1 Stitch layout;
+Stage 2 will wire the spatial interaction back to the engine.
 
 ## Initial Structure
 
@@ -16,6 +17,8 @@ tests/    Automated tests
 docs/     Project documentation and decisions
 scripts/  Local maintenance and validation scripts
 app.py    Gradio / Hugging Face Spaces entrypoint
+stitch_iris_atomic_infinite_zoom/
+          Google Stitch atomic UI export
 ```
 
 ## Architecture Principles
@@ -49,12 +52,10 @@ idea + prior constraints + ring depth
 ```text
 app.py
   -> iris.ui.create_app()
-  -> Gradio Blocks shell
-  -> stream_spiral()
-  -> pending ring / center HTML state
-  -> IrisEngine pressure/distill calls
-  -> custom HTML ring stage updates after each model result
-  -> final center action card
+  -> Gradio Blocks wrapper
+  -> static Stitch-style spatial canvas
+  -> Stage 2 will add modal/electron interactions
+  -> Stage 2 will call stream_spiral() / IrisEngine without changing engine logic
 ```
 
 ## Configuration
