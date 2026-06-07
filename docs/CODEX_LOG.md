@@ -139,3 +139,22 @@ Validation:
 - `./scripts/check_repo.sh` passed.
 - `./scripts/validate_gate.py --all` ran against local `openbmb/minicpm4.1` and
   passed all 3 seed spirals. Quality gate: passed.
+
+### 5241db6 - Add Gradio spiral UI shell
+
+- Added `app.py` as the Hugging Face Spaces / Gradio entrypoint.
+- Added `iris.ui` with a custom HTML/CSS concentric-ring stage, seed buttons,
+  streaming ring reveal, and real `IrisEngine` wiring.
+- Added UI render tests for alternative display, center display, and HTML
+  escaping.
+- Documented the Day 2a browser smoke test.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `./scripts/check_repo.sh` passed.
+- Gradio app built successfully in a local virtualenv.
+- Browser smoke test passed at `http://127.0.0.1:7860`: desktop and mobile
+  layouts rendered without horizontal overflow, and a real UI run completed 4
+  rings plus center from local MiniCPM4.1.
