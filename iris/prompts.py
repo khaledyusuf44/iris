@@ -274,7 +274,10 @@ def direction_pressure_user_prompt(
     enable_thinking: bool = False,
     rejection_feedback: str | None = None,
 ) -> str:
-    prior = "\n".join(f"- {item}" for item in prior_constraints) or "- None yet"
+    prior = (
+        "\n".join(f"- {_constraint_pressure_text(item)}" for item in prior_constraints)
+        or "- None yet"
+    )
     lens = DIRECTION_PROFILES[direction]
     style = DIRECTION_STYLES[direction]
     rejection = (
@@ -282,7 +285,7 @@ def direction_pressure_user_prompt(
         if rejection_feedback
         else ""
     )
-    prompt = f"""Idea:
+    prompt = f"""Frame context:
 {idea}
 
 Current depth:
@@ -297,6 +300,15 @@ This direction's job:
 Prior pressure already applied:
 {prior}
 {rejection}
+How to use this context:
+- Treat Current iteration as the idea being pressured now.
+- Use Original idea and Iteration history only to resolve references and keep
+  continuity with the frame.
+- If Current iteration differs from Original idea, the pressure question must
+  name a concrete actor, object, or action from Current iteration.
+- Prior pressure already applied is a forbidden list, not examples to imitate.
+  Do not restate any prior question, actor, object, failure scene, or angle.
+
 Required style:
 - Ask one hard question for the {direction} direction.
 - Start the pressure question exactly with: {style["opening"]}

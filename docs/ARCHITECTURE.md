@@ -6,11 +6,11 @@ Iris has a validated constraint engine and is shaping the Gradio product
 experience around it. The current codebase is a small Python package that calls
 an OpenAI-compatible MiniCPM endpoint, prints full idea spirals from a CLI
 harness, scores seed runs with an automated gate, and serves a Gradio interface
-through `app.py`. The current UI checkpoint is Iris UI v2 canvas navigation
-polish: a FigJam-style canvas with live frame creation, draggable idea frames,
+through `app.py`. The current UI checkpoint is Iris UI v2 open-ended canvas:
+a FigJam-style canvas with live frame creation, draggable idea frames,
 wheel/pinch zoom, wheel/drag pan, toolbar pan/focus controls, user idea cards,
-model-authored four-direction pressure sets, iteration stacking, and multiple
-frames.
+model-authored four-direction pressure sets, contextual iteration stacking, and
+multiple frames.
 
 ## Initial Structure
 
@@ -73,16 +73,18 @@ app.py
   -> empty-space drag and wheel gestures pan/zoom the canvas
   -> user idea card Proceed calls the named Gradio API endpoint
   -> iris.ui.run_canvas_engine()
-  -> IrisEngine.pressure_directions() for depths 1-4
-  -> IrisEngine.distill() at center depth
-  -> response JSON returns four model pressure cards or one center card
+  -> original idea + current iteration + idea history become the frame context
+     for this call
+  -> prior pressure cards become forbidden prior pressure context
+  -> IrisEngine.pressure_directions() for every open-ended canvas depth
+  -> response JSON returns four model pressure cards
   -> JS renders the returned pressure set and adds the next editable idea card
 ```
 
 ## Four-Direction Pressure Set
 
-For each non-center depth, the UI asks the engine for one pressure in each
-standard direction:
+For each canvas depth, the UI asks the engine for one pressure in each standard
+direction:
 
 ```text
 Constraints
@@ -95,6 +97,20 @@ Each direction is still authored by MiniCPM. The Python layer enforces JSON
 shape, direction-specific question openings, non-advice language, repeat
 checks, and missing-field repairs by re-prompting MiniCPM. It does not invent
 the pressure question or `why_it_bites` line.
+
+Canvas iteration is intentionally open-ended. The older CLI spiral still runs
+the four-ring plus center validation flow, but the UI keeps asking for pressure
+sets as the user adds more idea cards. Short follow-up phrases are grounded by
+the full frame context, including the original idea and previous idea
+iterations. Prior model pressure cards are passed separately as forbidden
+pressure context so MiniCPM can avoid repeats without treating them as idea text
+to imitate.
+
+The UI path fails closed for malformed JSON, advice language, wrong direction
+shape, or missing current-iteration grounding. If the final retry is otherwise
+valid but still only fails the repeat-similarity check, the canvas accepts that
+last model-authored card so an open-ended frame keeps stacking instead of
+collapsing into an error card.
 
 ## Configuration
 

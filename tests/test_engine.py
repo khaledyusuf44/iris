@@ -14,6 +14,7 @@ from iris.ui import (
     RingView,
     SpatialSession,
     SpiralView,
+    build_frame_context,
     pressure_cards_to_constraints,
     render_interactive_canvas_html,
     render_spiral_html,
@@ -684,7 +685,105 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(payload["cards"]), 4)
         self.assertIn("borrowed tool broken", client.messages[0][1]["content"])
 
-    def test_ui_engine_request_returns_center_payload_after_four_rings(self) -> None:
+    def test_ui_engine_request_passes_full_frame_context(self) -> None:
+        prior_cards = [
+            {
+                "direction": "Constraints",
+                "pressure": "What hard trust boundary blocks neighbors from sharing drills?",
+                "why_it_bites": "The first handoff can fail before the marketplace creates value.",
+            }
+        ]
+        context = build_frame_context(
+            current_idea="Focus on roommate access first.",
+            iterations=[
+                {
+                    "version": 1,
+                    "idea": "A marketplace for renting tools between neighbors.",
+                },
+                {"version": 2, "idea": "Focus on roommate access first."},
+            ],
+        )
+
+        self.assertIn("Original idea:", context)
+        self.assertIn("A marketplace for renting tools between neighbors.", context)
+        self.assertIn("Current iteration:", context)
+        self.assertIn("Focus on roommate access first.", context)
+        self.assertNotIn("Previous model pressure cards:", context)
+
+        client = FakeClient(
+            [
+                '{"pressure": "What hard access rule stops roommates from sharing rented tools?", "why_it_bites": "A household boundary can break the neighbor rental before trust matters."}',
+                '{"pressure": "Where does roommate tool access break when the renter is away?", "why_it_bites": "The idea may only work when the same person controls pickup and use."}',
+                '{"pressure": "What capability verifies roommate access to the neighbor tool before pickup?", "why_it_bites": "Without verification, the frame cannot tell permitted access from risky sharing."}',
+                '{"pressure": "What happens when a roommate arrives for the neighbor tool and the owner refuses?", "why_it_bites": "The real handoff can fail because the original renter is not present."}',
+            ]
+        )
+        engine = IrisEngine(client)
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-1",
+                        "idea": "Focus on roommate access first.",
+                        "depth": 2,
+                        "iterations": [
+                            {
+                                "version": 1,
+                                "idea": "A marketplace for renting tools between neighbors.",
+                            },
+                            {"version": 2, "idea": "Focus on roommate access first."},
+                        ],
+                        "prior_cards": prior_cards,
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "pressures")
+        prompt = client.messages[0][1]["content"]
+        self.assertIn("Original idea:", prompt)
+        self.assertIn("A marketplace for renting tools between neighbors.", prompt)
+        self.assertIn("Current iteration:", prompt)
+        self.assertIn("Focus on roommate access first.", prompt)
+        self.assertIn("Prior pressure already applied:", prompt)
+        self.assertIn("trust boundary", prompt)
+        self.assertIn("forbidden list", prompt)
+
+    def test_direction_pressure_retries_when_current_iteration_is_ignored(self) -> None:
+        context = build_frame_context(
+            current_idea="Focus on roommates borrowing from the original neighbor board first.",
+            iterations=[
+                {
+                    "version": 1,
+                    "idea": "A simple tool rental board for neighbors sharing drills and ladders.",
+                },
+                {
+                    "version": 2,
+                    "idea": "Focus on roommates borrowing from the original neighbor board first.",
+                },
+            ],
+        )
+        client = FakeClient(
+            [
+                '{"pressure": "What hard rule prevents neighbors from sharing drills and ladders?", "why_it_bites": "A hard boundary can block the board before trust matters."}',
+                '{"pressure": "What hard permission rule stops roommates from borrowing a neighbor drill?", "why_it_bites": "Roommate access can violate the trust boundary before the board creates value."}',
+                '{"pressure": "Where does roommate borrowing break when the original renter is away?", "why_it_bites": "The handoff may depend on a person who is not present."}',
+                '{"pressure": "What capability verifies a roommate is allowed to borrow the neighbor drill?", "why_it_bites": "Without permission proof, the board cannot separate allowed access from risky sharing."}',
+                '{"pressure": "What happens when a roommate arrives to borrow the neighbor drill and the owner refuses?", "why_it_bites": "The real handoff can collapse when the named borrower differs from the person at the door."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        results = engine.pressure_directions(context, [], 2, 4)
+
+        self.assertIn("roommates", results[0].pressure)
+        self.assertEqual(len(results), 4)
+        self.assertEqual(len(client.messages), 5)
+        self.assertIn("ignored the current iteration", client.messages[1][1]["content"])
+
+    def test_ui_engine_request_keeps_pressure_rounds_open_ended(self) -> None:
         prior_cards = [
             {
                 "pressure": "What happens when lecture notes include half-finished diagrams?",
@@ -707,7 +806,10 @@ class EngineTests(unittest.TestCase):
         engine = IrisEngine(
             FakeClient(
                 [
-                    '{"actor": "student", "situation": "the last time lecture notes felt too messy to study", "assumption_to_test": "flashcards help only when lecture notes already mark what matters"}'
+                    '{"pressure": "What hard exam rule makes lecture flashcards risky when notes are incomplete?", "why_it_bites": "A course constraint can make bad cards harmful before the student notices."}',
+                    '{"pressure": "Where does lecture flashcard review break when notes omit diagrams?", "why_it_bites": "The study loop may fail exactly where visual material carries the concept."}',
+                    '{"pressure": "What capability identifies which lecture notes are complete enough for flashcards?", "why_it_bites": "Without that capability, the stack can convert broken notes into confident mistakes."}',
+                    '{"pressure": "What happens when a student studies a flashcard made from unfinished lecture notes?", "why_it_bites": "The first real review can reinforce the wrong material before the exam."}',
                 ]
             )
         )
@@ -726,9 +828,63 @@ class EngineTests(unittest.TestCase):
         )
 
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["kind"], "center")
-        self.assertEqual(payload["ring_label"], "Center")
-        self.assertIn("Ask one student", payload["next_step"])
+        self.assertEqual(payload["kind"], "pressures")
+        self.assertEqual(payload["depth"], 5)
+        self.assertEqual(len(payload["cards"]), 4)
+        self.assertNotIn("next_step", payload)
+
+    def test_ui_engine_request_soft_accepts_repeat_after_retry_exhaustion(self) -> None:
+        repeated = (
+            '{"pressure": "Where does lecture flashcard review break when notes omit diagrams?", '
+            '"why_it_bites": "The study loop may fail where visual material carries the concept."}'
+        )
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    '{"pressure": "What hard exam rule makes diagram flashcards risky?", "why_it_bites": "A course constraint can punish confident but incomplete study material."}',
+                    repeated,
+                    repeated,
+                    repeated,
+                    repeated,
+                    '{"pressure": "What capability identifies which lecture diagrams are complete enough for flashcards?", "why_it_bites": "Without that capability, broken notes can become confident mistakes."}',
+                    '{"pressure": "What happens when a student reviews a flashcard from an unfinished lecture diagram?", "why_it_bites": "The first review can reinforce the wrong concept before the exam."}',
+                ]
+            )
+        )
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-2",
+                        "idea": "Focus on diagrams in lecture notes.",
+                        "depth": 2,
+                        "iterations": [
+                            {
+                                "version": 1,
+                                "idea": "A study tool that turns lecture notes into flashcards.",
+                            },
+                            {"version": 2, "idea": "Focus on diagrams in lecture notes."},
+                        ],
+                        "prior_cards": [
+                            {
+                                "direction": "Limitations",
+                                "pressure": "Where does lecture flashcard review break when notes omit diagrams?",
+                                "why_it_bites": "The study loop may fail where visual material carries the concept.",
+                            }
+                        ],
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "pressures")
+        self.assertEqual(len(payload["cards"]), 4)
+        self.assertEqual(
+            payload["cards"][1]["pressure"],
+            "Where does lecture flashcard review break when notes omit diagrams?",
+        )
 
     def test_ui_render_includes_canvas_frame_and_center_card(self) -> None:
         html = render_spiral_html(

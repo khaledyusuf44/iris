@@ -113,47 +113,75 @@ def run_canvas_engine(
         frame_id = str(request.get("frame_id", ""))
         idea = _required_text(request, "idea")
         depth = _required_depth(request)
+        iterations = _idea_iterations(request.get("iterations", []))
         prior_cards = _pressure_cards(request.get("prior_cards", []))
         constraints = pressure_cards_to_constraints(prior_cards)
+        frame_idea = build_frame_context(
+            current_idea=idea,
+            iterations=iterations,
+        )
         iris = engine or IrisEngine()
 
-        if depth <= RINGS:
-            results = iris.pressure_directions(idea, constraints, depth, RINGS)
-            payload: dict[str, Any] = {
-                "ok": True,
-                "kind": "pressures",
-                "frame_id": frame_id,
-                "depth": depth,
-                "cards": [
-                    {
-                        "direction": result.direction,
-                        "pressure": result.pressure,
-                        "why_it_bites": result.why_it_bites,
-                    }
-                    for result in results
-                ],
-            }
-            return json.dumps(payload)
-
-        if depth == RINGS + 1:
-            result = iris.distill(idea, constraints)
-            return json.dumps(
+        total = max(depth + 1, RINGS)
+        results = iris.pressure_directions(
+            frame_idea,
+            constraints,
+            depth,
+            total,
+            allow_soft_failures=True,
+        )
+        payload: dict[str, Any] = {
+            "ok": True,
+            "kind": "pressures",
+            "frame_id": frame_id,
+            "depth": depth,
+            "cards": [
                 {
-                    "ok": True,
-                    "kind": "center",
-                    "frame_id": frame_id,
-                    "depth": depth,
-                    "ring_label": "Center",
-                    "actor": result.actor,
-                    "situation": result.situation,
-                    "assumption_to_test": result.assumption_to_test,
-                    "next_step": result.next_step,
+                    "direction": result.direction,
+                    "pressure": result.pressure,
+                    "why_it_bites": result.why_it_bites,
                 }
-            )
-
-        raise ValueError("This frame has already reached the center.")
+                for result in results
+            ],
+        }
+        return json.dumps(payload)
     except (IrisError, ValueError, TypeError, json.JSONDecodeError) as exc:
         return json.dumps({"ok": False, "message": str(exc)})
+
+
+def build_frame_context(
+    *,
+    current_idea: str,
+    iterations: list[dict[str, Any]],
+) -> str:
+    history: list[tuple[int, str]] = []
+    for index, item in enumerate(iterations, start=1):
+        idea = str(item.get("idea", "")).strip()
+        if not idea:
+            continue
+        try:
+            version = int(item.get("version", index))
+        except (TypeError, ValueError):
+            version = index
+        history.append((version, idea))
+
+    if not history:
+        history.append((1, current_idea))
+
+    original_idea = history[0][1]
+    lines = [
+        "Current iteration:",
+        current_idea,
+        "",
+        "Original idea:",
+        original_idea,
+        "",
+        "Iteration history:",
+    ]
+    for version, idea in history:
+        lines.append(f"- Idea v{version}: {idea}")
+
+    return "\n".join(lines)
 
 
 def pressure_cards_to_constraints(cards: list[dict[str, Any]]) -> list[str]:
@@ -216,6 +244,26 @@ def _pressure_cards(value: Any) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             cards.append(item)
     return cards
+
+
+def _idea_iterations(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("iterations must be a list")
+    iterations: list[dict[str, Any]] = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, dict):
+            continue
+        idea = str(item.get("idea", "")).strip()
+        if not idea:
+            continue
+        try:
+            version = int(item.get("version", index))
+        except (TypeError, ValueError):
+            version = index
+        iterations.append({"version": version, "idea": idea})
+    return iterations
 
 
 def render_interactive_canvas_html() -> str:
@@ -583,13 +631,6 @@ def safe_class_token(value: str) -> str:
 
 APP_JS = r"""
 () => {
-  const RINGS = 4;
-  const RING_NAMES = {
-    1: "Reality Contact",
-    2: "Real Actor",
-    3: "Existing Alternative",
-    4: "Problem Truth",
-  };
   const DIRECTIONS = ["Constraints", "Limitations", "Capabilities", "Reality Contact"];
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 1.8;
@@ -891,36 +932,22 @@ APP_JS = r"""
   }
 
   function renderLoadingEntry(entry) {
-    if (entry.depth <= RINGS) {
-      return `
-        <div class="iris-pressure-set is-pending" data-entry-id="${escapeAttr(entry.id)}">
-          <div class="iris-pressure-grid">
-            ${DIRECTIONS.map((direction) => `
-              <article class="iris-card iris-card-ai is-pending">
-                <div class="iris-card-kicker">
-                  <span>AI pressure</span>
-                  <span>${escapeHtml(direction)}</span>
-                </div>
-                <h3>${escapeHtml(direction)} forming</h3>
-                <p>MiniCPM is applying pressure.</p>
-                <i aria-hidden="true"></i>
-              </article>
-            `).join("")}
-          </div>
-        </div>
-      `;
-    }
-    const label = "Center";
     return `
-      <article class="iris-card iris-card-center is-pending" data-entry-id="${escapeAttr(entry.id)}">
-        <div class="iris-card-kicker">
-          <span>Center</span>
-          <span>${escapeHtml(label)}</span>
+      <div class="iris-pressure-set is-pending" data-entry-id="${escapeAttr(entry.id)}">
+        <div class="iris-pressure-grid">
+          ${DIRECTIONS.map((direction) => `
+            <article class="iris-card iris-card-ai is-pending">
+              <div class="iris-card-kicker">
+                <span>AI pressure</span>
+                <span>${escapeHtml(direction)}</span>
+              </div>
+              <h3>${escapeHtml(direction)} forming</h3>
+              <p>MiniCPM is applying pressure.</p>
+              <i aria-hidden="true"></i>
+            </article>
+          `).join("")}
         </div>
-        <h3>${escapeHtml(label)} forming</h3>
-        <p>MiniCPM is distilling the center.</p>
-        <i aria-hidden="true"></i>
-      </article>
+      </div>
     `;
   }
 

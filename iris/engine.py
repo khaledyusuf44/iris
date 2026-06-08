@@ -240,7 +240,13 @@ class IrisEngine:
         raise IrisResponseError("Model did not return pressure output")
 
     def pressure_directions(
-        self, idea: str, prior_constraints: list[str], depth: int, total: int
+        self,
+        idea: str,
+        prior_constraints: list[str],
+        depth: int,
+        total: int,
+        *,
+        allow_soft_failures: bool = False,
     ) -> list[DirectionPressureResult]:
         if depth < 1 or total < 1 or depth > total:
             raise ValueError("depth must be between 1 and total")
@@ -257,6 +263,7 @@ class IrisEngine:
                     depth=depth,
                     total=total,
                     direction=direction,
+                    allow_soft_failure=allow_soft_failures,
                 )
             )
         return results
@@ -331,6 +338,7 @@ class IrisEngine:
         depth: int,
         total: int,
         direction: str,
+        allow_soft_failure: bool = False,
     ) -> DirectionPressureResult:
         feedback: str | None = None
         last_result: DirectionPressureResult | None = None
@@ -361,6 +369,8 @@ class IrisEngine:
             feedback = quality_feedback
 
         if last_result is not None and feedback is not None:
+            if allow_soft_failure and _is_soft_direction_failure(feedback):
+                return last_result
             raise IrisResponseError(
                 f"{direction} direction failed quality gate: {feedback}"
             )
@@ -738,6 +748,7 @@ def _single_direction_pressure_quality_feedback(
     pressure = result.pressure.strip()
     normalized = _normalize(pressure)
     idea_keywords = _keywords(idea)
+    current_iteration_keywords = _current_iteration_keywords(idea)
 
     if "?" not in pressure or not pressure.rstrip().endswith("?"):
         return (
@@ -756,6 +767,15 @@ def _single_direction_pressure_quality_feedback(
             f"{result.direction} pressure is not grounded in the idea. Use at "
             "least one concrete word from the idea: "
             f"{', '.join(sorted(idea_keywords)[:6])}."
+        )
+
+    if current_iteration_keywords and not _has_keyword_match(
+        normalized, current_iteration_keywords
+    ):
+        return (
+            f"{result.direction} pressure ignored the current iteration. Use at "
+            "least one concrete word from Current iteration: "
+            f"{', '.join(sorted(current_iteration_keywords)[:6])}."
         )
 
     for phrase in BANNED_PRESSURE_PHRASES:
@@ -801,6 +821,10 @@ def _direction_opening_feedback(direction: str, normalized_pressure: str) -> str
         f'{direction} pressure must start with "{DIRECTION_STYLES[direction]["opening"]}" '
         "so each card stays in its assigned direction."
     )
+
+
+def _is_soft_direction_failure(feedback: str) -> bool:
+    return "pressure repeats a prior pressure" in feedback
 
 
 def _distill_quality_feedback(result: DistillResult, idea: str) -> str | None:
@@ -1047,11 +1071,29 @@ def _keywords(text: str) -> set[str]:
         "already",
         "between",
         "build",
+        "canvas",
+        "cards",
+        "capabilities",
+        "constraints",
+        "contact",
         "could",
+        "current",
+        "direction",
         "does",
+        "first",
+        "focus",
+        "frame",
         "from",
         "have",
+        "history",
         "into",
+        "iteration",
+        "limitations",
+        "model",
+        "original",
+        "pressure",
+        "previous",
+        "reality",
         "that",
         "their",
         "them",
@@ -1068,13 +1110,55 @@ def _keywords(text: str) -> set[str]:
     return {word for word in words if word not in stop_words}
 
 
+def _current_iteration_keywords(text: str) -> set[str]:
+    current = _frame_context_section(text, "Current iteration:")
+    if not current:
+        return set()
+
+    original = _frame_context_section(text, "Original idea:")
+    current_keywords = _keywords(current)
+    original_keywords = _keywords(original)
+    original_variants = {
+        variant
+        for keyword in original_keywords
+        for variant in _keyword_variants(keyword)
+    }
+    current_only = {
+        keyword
+        for keyword in current_keywords
+        if not (_keyword_variants(keyword) & original_variants)
+    }
+    return current_only or current_keywords
+
+
+def _frame_context_section(text: str, heading: str) -> str:
+    marker = f"{heading}\n"
+    start = text.find(marker)
+    if start < 0:
+        return ""
+    start += len(marker)
+    end = text.find("\n\n", start)
+    if end < 0:
+        end = len(text)
+    return text[start:end].strip()
+
+
 def _has_keyword_match(normalized_text: str, keywords: set[str]) -> bool:
     for keyword in keywords:
-        variants = {keyword}
-        if keyword.endswith("s"):
-            variants.add(keyword[:-1])
-        if keyword.endswith("ies"):
-            variants.add(f"{keyword[:-3]}y")
+        variants = _keyword_variants(keyword)
         if any(variant and variant in normalized_text for variant in variants):
             return True
     return False
+
+
+def _keyword_variants(keyword: str) -> set[str]:
+    variants = {keyword}
+    if keyword.endswith("s"):
+        variants.add(keyword[:-1])
+    else:
+        variants.add(f"{keyword}s")
+    if keyword.endswith("ies"):
+        variants.add(f"{keyword[:-3]}y")
+    elif keyword.endswith("y"):
+        variants.add(f"{keyword[:-1]}ies")
+    return variants
