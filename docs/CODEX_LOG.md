@@ -364,3 +364,21 @@ Validation:
   Ctrl-wheel zoomed over the frame, toolbar pan moved the world, and Focus
   recentered the active frame.
 - Iris quality gate: not rerun for this UI navigation checkpoint.
+
+### 06bb36c - Add Build Small field guide
+
+Date: 2026-06-08
+
+- Added `docs/BUILD_SMALL_FIELD_GUIDE.md` to preserve Khalid's hackathon
+  guidance: Off-the-Grid, Custom UI, optional llama.cpp, Field Notes, Open
+  Trace, demo video, social post, and Hugging Face Space submission needs.
+- Updated README, architecture notes, roadmap, and project brief so future work
+  keeps local MiniCPM, custom canvas polish, load-bearing AI, and submission
+  readiness in view.
+- No engine or UI runtime behavior changed.
+
+Validation:
+
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Iris quality gate: not rerun for this docs-only guidance update.
