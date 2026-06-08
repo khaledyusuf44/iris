@@ -6,9 +6,9 @@ Iris has a validated constraint engine and is shaping the Gradio product
 experience around it. The current codebase is a small Python package that calls
 an OpenAI-compatible MiniCPM endpoint, prints full idea spirals from a CLI
 harness, scores seed runs with an automated gate, and serves a Gradio interface
-through `app.py`. The current UI checkpoint is the Stage 2 Stitch core flow:
-clickable nucleus, modal input, engine-backed pressure electrons, and center
-distillation.
+through `app.py`. The current UI checkpoint is Iris UI v2 Stage 1: a static
+FigJam-style canvas with a framed idea stack, user idea cards, model pressure
+cards, and a next-iteration card.
 
 ## Initial Structure
 
@@ -19,7 +19,7 @@ docs/     Project documentation and decisions
 scripts/  Local maintenance and validation scripts
 app.py    Gradio / Hugging Face Spaces entrypoint
 stitch_iris_atomic_infinite_zoom/
-          Google Stitch atomic UI export
+          Earlier Google Stitch atomic UI export/reference
 ```
 
 ## Architecture Principles
@@ -54,12 +54,19 @@ idea + prior constraints + ring depth
 app.py
   -> iris.ui.create_app()
   -> Gradio Blocks wrapper
-  -> Stitch-style spatial canvas
-  -> nucleus click opens Gradio modal
-  -> Proceed calls IrisEngine.pressure() for depth 1
-  -> latest electron click calls IrisEngine.pressure() for the next depth
-  -> R4 click calls IrisEngine.distill()
-  -> final center action renders in the spatial canvas
+  -> static Iris UI v2 canvas/card checkpoint
+  -> idea frame renders the submitted idea card
+  -> AI cards render model pressure + why_it_bites
+  -> next idea card keeps the downward iteration stack visible
+
+Planned Stage 2 wiring:
+
+canvas click
+  -> create an idea frame
+  -> Proceed calls IrisEngine.pressure() for the current depth
+  -> returned MiniCPM pressure renders as an AI card
+  -> next user idea card continues the same stack
+  -> final center action renders as the bottom card
 ```
 
 ## Configuration

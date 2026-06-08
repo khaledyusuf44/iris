@@ -8,7 +8,6 @@ from typing import Iterable
 
 from iris.engine import IrisEngine, PressureResult
 from iris.errors import IrisError
-from iris.seeds import DEFAULT_IDEAS
 
 
 RINGS = 4
@@ -46,6 +45,8 @@ class SpiralView:
     pending_depth: int | None = None
     center_pending: bool = False
     selected_depth: int | None = None
+    iteration: str | None = None
+    frame_title: str = "Idea frame 01"
 
 
 @dataclass
@@ -56,6 +57,7 @@ class SpatialSession:
     status: str = "ready"
     message: str = ""
     selected_depth: int | None = None
+    iteration: str | None = None
 
 
 def create_app():
@@ -66,196 +68,44 @@ def create_app():
         css=APP_CSS,
         analytics_enabled=False,
     ) as demo:
-        session = gr.State(SpatialSession())
-        stage = gr.HTML(
-            render_spiral_html(session_to_view(SpatialSession())),
+        gr.HTML(
+            render_spiral_html(sample_canvas_view()),
             elem_id="iris-stage",
         )
-        nucleus = gr.Button("", elem_id="iris-nucleus-click")
-        electron_buttons = [
-            gr.Button(
-                f"R{depth}",
-                visible=False,
-                elem_id=f"iris-electron-control-{depth}",
-                elem_classes=["iris-electron-control"],
-            )
-            for depth in range(1, RINGS + 1)
-        ]
-
-        with gr.Group(visible=False, elem_id="iris-idea-modal") as modal:
-            with gr.Column(elem_classes=["iris-modal-card"]):
-                gr.Markdown("`NEURAL INJECTION PROTOCOL`")
-                gr.Markdown("## What idea shall we explore today?")
-                idea_input = gr.Textbox(
-                    label="",
-                    lines=4,
-                    max_lines=6,
-                    placeholder="A marketplace for renting tools between neighbors.",
-                    value=DEFAULT_IDEAS[0],
-                    elem_id="iris-idea-input",
-                )
-                with gr.Row(elem_classes=["iris-modal-actions"]):
-                    close_modal = gr.Button("Close", variant="secondary")
-                    proceed = gr.Button("Proceed", variant="primary", elem_id="iris-proceed")
-
-        outputs = [session, stage, modal, idea_input, *electron_buttons]
-
-        def package(
-            next_session: SpatialSession,
-            *,
-            modal_visible: bool = False,
-            idea_value: str | None = None,
-            pending_depth: int | None = None,
-            center_pending: bool = False,
-        ):
-            view = session_to_view(
-                next_session,
-                pending_depth=pending_depth,
-                center_pending=center_pending,
-            )
-            idea_update = (
-                gr.update(value=idea_value)
-                if idea_value is not None
-                else gr.update()
-            )
-            return (
-                next_session,
-                render_spiral_html(view),
-                gr.update(visible=modal_visible),
-                idea_update,
-                *electron_button_updates(gr, next_session),
-            )
-
-        def open_modal(next_session: SpatialSession):
-            return package(
-                next_session,
-                modal_visible=True,
-                idea_value=next_session.idea or DEFAULT_IDEAS[0],
-            )
-
-        def close_modal_handler(next_session: SpatialSession):
-            return package(next_session, modal_visible=False)
-
-        def proceed_handler(idea: str):
-            cleaned_idea = idea.strip()
-            if not cleaned_idea:
-                next_session = SpatialSession(
-                    idea="",
-                    status="error",
-                    message="Enter one raw idea first.",
-                )
-                yield package(next_session, modal_visible=True, idea_value=idea)
-                return
-
-            next_session = SpatialSession(
-                idea=cleaned_idea,
-                status="running",
-                message=f"{ring_name(1)} is active.",
-            )
-            yield package(
-                next_session,
-                modal_visible=False,
-                idea_value=cleaned_idea,
-                pending_depth=1,
-            )
-
-            try:
-                result = IrisEngine().pressure(cleaned_idea, [], 1, RINGS)
-            except IrisError as exc:
-                next_session.status = "error"
-                next_session.message = str(exc)
-                yield package(next_session, modal_visible=False)
-                return
-
-            next_session.pressures.append(result)
-            next_session.status = "waiting"
-            next_session.message = "Click the R1 electron to descend."
-            next_session.selected_depth = 1
-            yield package(next_session, modal_visible=False)
-
-        def make_electron_handler(depth: int):
-            def electron_handler(next_session: SpatialSession):
-                if depth > len(next_session.pressures):
-                    yield package(next_session, modal_visible=False)
-                    return
-
-                next_session.selected_depth = depth
-                if next_session.center is not None:
-                    next_session.status = "complete"
-                    next_session.message = "Center reached."
-                    yield package(next_session, modal_visible=False)
-                    return
-
-                if depth != len(next_session.pressures):
-                    next_session.status = "inspecting"
-                    next_session.message = f"{ring_name(depth)} selected."
-                    yield package(next_session, modal_visible=False)
-                    return
-
-                constraints = [item.as_constraint() for item in next_session.pressures]
-                if len(next_session.pressures) >= RINGS:
-                    next_session.status = "running"
-                    next_session.message = "Center is forming."
-                    yield package(
-                        next_session,
-                        modal_visible=False,
-                        center_pending=True,
-                    )
-                    try:
-                        center = IrisEngine().distill(next_session.idea, constraints)
-                    except IrisError as exc:
-                        next_session.status = "error"
-                        next_session.message = str(exc)
-                        yield package(next_session, modal_visible=False)
-                        return
-
-                    next_session.center = CenterView(
-                        actor=center.actor,
-                        situation=center.situation,
-                        assumption_to_test=center.assumption_to_test,
-                        next_step=center.next_step,
-                    )
-                    next_session.status = "complete"
-                    next_session.message = "Center reached."
-                    yield package(next_session, modal_visible=False)
-                    return
-
-                next_depth = len(next_session.pressures) + 1
-                next_session.status = "running"
-                next_session.message = f"{ring_name(next_depth)} is active."
-                yield package(
-                    next_session,
-                    modal_visible=False,
-                    pending_depth=next_depth,
-                )
-                try:
-                    result = IrisEngine().pressure(
-                        next_session.idea,
-                        constraints,
-                        next_depth,
-                        RINGS,
-                    )
-                except IrisError as exc:
-                    next_session.status = "error"
-                    next_session.message = str(exc)
-                    yield package(next_session, modal_visible=False)
-                    return
-
-                next_session.pressures.append(result)
-                next_session.selected_depth = next_depth
-                next_session.status = "waiting"
-                next_session.message = f"Click the R{next_depth} electron to descend."
-                yield package(next_session, modal_visible=False)
-
-            return electron_handler
-
-        nucleus.click(open_modal, inputs=session, outputs=outputs)
-        close_modal.click(close_modal_handler, inputs=session, outputs=outputs)
-        proceed.click(proceed_handler, inputs=idea_input, outputs=outputs)
-        for depth, electron in enumerate(electron_buttons, start=1):
-            electron.click(make_electron_handler(depth), inputs=session, outputs=outputs)
 
     return demo
+
+
+def sample_canvas_view() -> SpiralView:
+    return SpiralView(
+        idea="A marketplace for renting tools between neighbors.",
+        rings=[
+            RingView(
+                depth=1,
+                pressure="What happens when a neighbor returns a borrowed tool broken?",
+                why_it_bites="The trust failure appears before marketplace supply matters.",
+            ),
+            RingView(
+                depth=2,
+                pressure="Who decides whether a tool is safe enough to lend?",
+                why_it_bites="The owner may carry the real risk while the renter gets the visible benefit.",
+            ),
+            RingView(
+                depth=3,
+                pressure="What do neighbors use today when a power saw is needed quickly: hardware store rentals?",
+                why_it_bites="A store rental may already solve the urgent access moment.",
+                alternative="hardware store rentals",
+            ),
+        ],
+        status="ready",
+        message="Canvas checkpoint ready.",
+        selected_depth=2,
+        iteration=(
+            "Focus the next pass on one Saturday pickup between neighbors who already "
+            "know each other and need a power drill before stores close."
+        ),
+        frame_title="Tool rental pressure stack",
+    )
 
 
 def stream_spiral(idea: str) -> Iterable[str]:
@@ -386,230 +236,245 @@ def session_to_view(
         pending_depth=pending_depth,
         center_pending=center_pending,
         selected_depth=session.selected_depth,
+        iteration=session.iteration,
+        frame_title="Active pressure stack",
     )
-
-
-def electron_button_updates(gr, session: SpatialSession):
-    return [
-        gr.update(value=f"R{depth}", visible=depth <= len(session.pressures))
-        for depth in range(1, RINGS + 1)
-    ]
 
 
 def render_spiral_html(view: SpiralView) -> str:
     depth = len(view.rings)
     status_text = escape(view.message or default_message(view))
-    title_html = render_primary_title(view)
-    subtitle_html = render_primary_subtitle(view)
-    electrons_html = render_electron_shell(view)
-    context_html = render_context_panel(view)
-    depth_text = "READY" if depth == 0 else f"LEVEL {depth}"
+    status_class = safe_class_token(view.status)
+    depth_text = "Depth 00" if depth == 0 else f"Depth {depth:02d}"
 
     return f"""
-<section class="iris-spatial status-{escape(view.status)}">
-  <header class="iris-topbar" aria-label="Iris navigation">
-    <div class="iris-wordmark">IRIS</div>
-    <nav class="iris-nav-links" aria-label="Primary">
-      <span class="is-active">Deep Scan</span>
-      <span>Orbital Hub</span>
-      <span>Neural Link</span>
-      <span>Archive</span>
-    </nav>
-    <div class="iris-top-actions" aria-label="System controls">
-      <button type="button" aria-label="Settings"><span></span></button>
-      <button type="button" aria-label="Profile"><span></span></button>
+<section class="iris-board status-{status_class}">
+  <header class="iris-boardbar" aria-label="Iris canvas header">
+    <div class="iris-brand-block">
+      <strong>IRIS</strong>
+      <span>Pressure canvas</span>
+    </div>
+    <div class="iris-board-status" aria-label="Current canvas status">
+      <span>{status_text}</span>
+      <span>MiniCPM local</span>
+      <span>{escape(depth_text)}</span>
     </div>
   </header>
 
-  <aside class="iris-rail" aria-label="Depth rail">
-    <div class="iris-rail-item is-current"><span></span><strong>Core</strong></div>
-    <div class="iris-rail-item"><span></span><strong>Mantle</strong></div>
-    <div class="iris-rail-item"><span></span><strong>Outer Rim</strong></div>
-    <div class="iris-rail-item"><span></span><strong>Void</strong></div>
-    <div class="iris-rail-meter"><i></i><strong>14.2k</strong></div>
-  </aside>
+  <div class="iris-canvas-viewport">
+    <main class="iris-canvas-v2" aria-label="Iris idea canvas">
+      <div class="iris-canvas-grid" aria-hidden="true"></div>
+      <div class="iris-depth-thread iris-depth-thread-primary" aria-hidden="true"></div>
+      <div class="iris-depth-thread iris-depth-thread-secondary" aria-hidden="true"></div>
 
-  <main class="iris-canvas" aria-label="Iris spatial canvas">
-    {render_orbit_rings()}
-    {render_stardust()}
+      <section class="iris-frame iris-frame-primary" aria-label="Primary idea frame">
+        <header class="iris-frame-header">
+          <div>
+            <span>Idea frame</span>
+            <strong>{escape(view.frame_title)}</strong>
+          </div>
+          <div class="iris-frame-badges">
+            <span>{escape(depth_text)}</span>
+            <span>{escape(view.status.upper())}</span>
+          </div>
+        </header>
+        <div class="iris-stack">
+          {render_idea_card(view)}
+          {render_connector("AI pressure")}
+          {render_ai_cards(view)}
+          {render_connector("Next iteration")}
+          {render_iteration_card(view)}
+          {render_center_card(view)}
+        </div>
+      </section>
 
-    <div class="iris-nucleus-wrap">
-      <div class="iris-nucleus-halo" aria-hidden="true"></div>
-      <button class="iris-nucleus" type="button" aria-label="Initiate scan">
-        <span class="iris-core-symbol" aria-hidden="true"><i></i></span>
-        <span class="iris-core-label">Initiate Scan</span>
-      </button>
-      <div class="iris-data-chip iris-chip-status">STATUS: {status_text}</div>
-      <div class="iris-data-chip iris-chip-latency">DEPTH: {escape(depth_text)}</div>
-      {electrons_html}
-    </div>
-
-    <div class="iris-hero-copy">
-      {title_html}
-      {subtitle_html}
-    </div>
-
-    {context_html}
-  </main>
+      <section class="iris-frame iris-frame-secondary" aria-label="Secondary idea frame preview">
+        <header class="iris-frame-header">
+          <div>
+            <span>Separate frame</span>
+            <strong>Lecture notes stack</strong>
+          </div>
+          <div class="iris-frame-badges">
+            <span>Depth 01</span>
+          </div>
+        </header>
+        <div class="iris-mini-stack">
+          <div></div>
+          <div></div>
+          <div></div>
+        </div>
+      </section>
+    </main>
+  </div>
 </section>
 """
 
 
-def render_primary_title(view: SpiralView) -> str:
-    if view.center is not None:
-        return f"<h1>{escape(view.center.next_step)}</h1>"
-    ring = selected_ring(view)
-    if ring is not None:
-        return f"<h1>{escape(ring.pressure)}</h1>"
-    return "<h1>The universe is waiting for your input.</h1>"
+def render_idea_card(view: SpiralView) -> str:
+    idea = view.idea or "Untitled idea"
+    return f"""
+<article class="iris-card iris-card-idea">
+  <div class="iris-card-kicker">
+    <span>Idea v1</span>
+    <span>User card</span>
+  </div>
+  <p>{escape(idea)}</p>
+</article>
+"""
 
 
-def render_primary_subtitle(view: SpiralView) -> str:
-    if view.center is not None:
-        return '<p class="iris-hero-label">Center point reached.</p>'
-    ring = selected_ring(view)
-    if ring is not None:
-        return f'<p class="iris-hero-label">{escape(ring.why_it_bites)}</p>'
-    return '<p class="iris-hero-label">Deploy neural probes to map conceptual space.</p>'
-
-
-def selected_ring(view: SpiralView) -> RingView | None:
-    if not view.rings:
-        return None
-    if view.selected_depth is not None:
-        for ring in view.rings:
-            if ring.depth == view.selected_depth:
-                return ring
-    return view.rings[-1]
-
-
-def render_electron_shell(view: SpiralView) -> str:
-    if not view.rings and view.pending_depth is None and not view.center_pending:
-        return ""
-
-    nodes = list(view.rings)
+def render_ai_cards(view: SpiralView) -> str:
+    cards = [render_ai_card(ring, selected=ring.depth == view.selected_depth) for ring in view.rings]
     if view.pending_depth is not None:
-        nodes.append(
-            RingView(
-                depth=view.pending_depth,
-                pressure=f"{ring_name(view.pending_depth)} forming",
-                why_it_bites="",
-            )
-        )
-    if view.center_pending:
-        nodes.append(RingView(depth=RINGS + 1, pressure="Center forming", why_it_bites=""))
-
-    positions = ("a", "b", "c", "d", "e")
-    items = []
-    for index, ring in enumerate(nodes[:5]):
-        label = "CENTER" if ring.depth > RINGS else f"R{ring.depth}"
-        title = escape(ring.pressure)
-        state = " is-selected" if ring.depth == view.selected_depth else ""
-        items.append(
-            f"""
-      <button class="iris-electron iris-electron-{positions[index]}{state}" type="button">
-        <span>{escape(label)}</span>
-        <small>{title}</small>
-      </button>
+        cards.append(render_pending_ai_card(view.pending_depth))
+    if not cards:
+        cards.append(
+            """
+<article class="iris-card iris-card-ai iris-card-empty">
+  <div class="iris-card-kicker">
+    <span>AI pressure</span>
+    <span>Pending</span>
+  </div>
+  <p>Pressure cards pending.</p>
+</article>
 """
         )
-    return f'<div class="iris-electron-shell" aria-label="Pressure electrons">{"".join(items)}</div>'
+
+    return f'<div class="iris-ai-row" aria-label="AI pressure cards">{"".join(cards)}</div>'
 
 
-def render_context_panel(view: SpiralView) -> str:
-    if not view.idea and not view.rings and view.center is None:
+def render_ai_card(ring: RingView, *, selected: bool = False) -> str:
+    selected_class = " is-selected" if selected else ""
+    alternative_html = (
+        f'<small class="iris-alternative">Alternative: {escape(ring.alternative)}</small>'
+        if ring.alternative
+        else ""
+    )
+    return f"""
+<article class="iris-card iris-card-ai{selected_class}">
+  <div class="iris-card-kicker">
+    <span>AI pressure</span>
+    <span>{escape(ring_name(ring.depth))}</span>
+  </div>
+  <h3>{escape(ring.pressure)}</h3>
+  <p>{escape(ring.why_it_bites)}</p>
+  {alternative_html}
+</article>
+"""
+
+
+def render_pending_ai_card(depth: int) -> str:
+    return f"""
+<article class="iris-card iris-card-ai is-pending">
+  <div class="iris-card-kicker">
+    <span>AI pressure</span>
+    <span>{escape(ring_name(depth))}</span>
+  </div>
+  <h3>{escape(ring_name(depth))} forming</h3>
+  <p>Waiting for the model pressure.</p>
+  <i aria-hidden="true"></i>
+</article>
+"""
+
+
+def render_iteration_card(view: SpiralView) -> str:
+    iteration = view.iteration
+    if iteration is None:
+        iteration = "Next version of the idea lands here after the pressure cards."
+    return f"""
+<article class="iris-card iris-card-iteration">
+  <div class="iris-card-kicker">
+    <span>Idea v2</span>
+    <span>Iteration card</span>
+  </div>
+  <p>{escape(iteration)}</p>
+</article>
+"""
+
+
+def render_center_card(view: SpiralView) -> str:
+    if view.center_pending:
+        return f"""
+{render_connector("Center")}
+<article class="iris-card iris-card-center is-pending">
+  <div class="iris-card-kicker">
+    <span>Center</span>
+    <span>Next step pending</span>
+  </div>
+  <h3>Center is forming.</h3>
+  <p>The distilled action is waiting on the model.</p>
+  <i aria-hidden="true"></i>
+</article>
+"""
+    if view.center is None:
         return ""
-
-    idea = escape(view.idea or "Awaiting idea")
-    if view.center is not None:
-        body = escape(view.center.assumption_to_test)
-        eyebrow = "CENTER ASSUMPTION"
-    elif selected_ring(view) is not None:
-        ring = selected_ring(view)
-        assert ring is not None
-        body = escape(ring.alternative or ring.why_it_bites)
-        eyebrow = f"{ring_name(ring.depth).upper()} SIGNAL"
-    else:
-        body = "Ready to receive a raw idea."
-        eyebrow = "NEURAL TELEMETRY"
 
     return f"""
-    <aside class="iris-context-panel">
-      <span>{escape(eyebrow)}</span>
-      <p>{body}</p>
-      <dl>
-        <div><dt>Input</dt><dd>{idea}</dd></div>
-        <div><dt>Protocol</dt><dd>MiniCPM local</dd></div>
-      </dl>
-    </aside>
+{render_connector("Center")}
+<article class="iris-card iris-card-center">
+  <div class="iris-card-kicker">
+    <span>Center</span>
+    <span>Next step</span>
+  </div>
+  <h3>{escape(view.center.next_step)}</h3>
+  <dl>
+    <div><dt>Actor</dt><dd>{escape(view.center.actor)}</dd></div>
+    <div><dt>Situation</dt><dd>{escape(view.center.situation)}</dd></div>
+    <div><dt>Assumption</dt><dd>{escape(view.center.assumption_to_test)}</dd></div>
+  </dl>
+</article>
 """
 
 
-def render_orbit_rings() -> str:
-    return """
-    <div class="iris-orbit-ring iris-orbit-ring-1"></div>
-    <div class="iris-orbit-ring iris-orbit-ring-2"></div>
-    <div class="iris-orbit-ring iris-orbit-ring-3"></div>
-    <div class="iris-orbit-ring iris-orbit-ring-4"></div>
-    <div class="iris-orbit-ring iris-orbit-ring-5"></div>
+def render_connector(label: str) -> str:
+    return f"""
+<div class="iris-connector" aria-hidden="true">
+  <span>{escape(label)}</span>
+</div>
 """
-
-
-def render_stardust() -> str:
-    stars = []
-    points = (
-        (18, 22),
-        (31, 30),
-        (46, 17),
-        (70, 25),
-        (85, 39),
-        (25, 53),
-        (41, 68),
-        (62, 55),
-        (77, 72),
-        (91, 82),
-        (15, 78),
-        (54, 86),
-        (68, 12),
-        (35, 88),
-        (93, 18),
-    )
-    for index, (left, top) in enumerate(points):
-        size = "is-large" if index % 5 == 0 else ""
-        stars.append(
-            f'<span class="{size}" style="left:{left}%; top:{top}%"></span>'
-        )
-    return f'<div class="iris-stardust" aria-hidden="true">{"".join(stars)}</div>'
 
 
 def default_message(view: SpiralView) -> str:
     if view.status == "complete":
         return "Center reached."
     if view.status == "running":
-        return "Mapping."
+        return "Model pressure running."
     if view.status == "waiting":
-        return "Awaiting descent."
+        return "Awaiting next idea card."
     if view.status == "inspecting":
-        return "Electron selected."
+        return "Pressure card selected."
     if view.status == "error":
         return "Signal interrupted."
-    return "Idle"
+    return "Canvas ready."
+
+
+def safe_class_token(value: str) -> str:
+    token = "".join(
+        character.lower() if character.isalnum() or character in {"-", "_"} else "-"
+        for character in value
+    ).strip("-")
+    return token or "ready"
 
 
 APP_CSS = """
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&family=JetBrains+Mono:wght@400;500&display=swap");
-
 :root {
-  --iris-void: #050508;
-  --iris-bg: #13131b;
-  --iris-surface: rgba(19, 19, 27, 0.42);
-  --iris-surface-strong: rgba(31, 31, 39, 0.52);
-  --iris-line: rgba(180, 203, 206, 0.18);
-  --iris-line-faint: rgba(180, 203, 206, 0.08);
-  --iris-text: #e4e1ed;
-  --iris-muted: #bac9cc;
-  --iris-cyan: #00daf3;
-  --iris-cyan-soft: #9cf0ff;
+  --iris-ink: #07090d;
+  --iris-canvas: #0c1117;
+  --iris-frame: rgba(18, 24, 31, 0.84);
+  --iris-frame-line: rgba(154, 171, 188, 0.24);
+  --iris-card-light: #f4f0e8;
+  --iris-card-cream: #fffaf0;
+  --iris-card-dark: #111923;
+  --iris-card-darker: #0d141d;
+  --iris-text: #f2f6f8;
+  --iris-ink-text: #17202a;
+  --iris-muted: #aeb9c4;
+  --iris-muted-strong: #687887;
+  --iris-cyan: #66d9d7;
+  --iris-lime: #b7e37b;
+  --iris-amber: #e9b949;
+  --iris-rose: #dc7bd2;
+  --iris-shadow: rgba(0, 0, 0, 0.36);
 }
 
 * {
@@ -620,7 +485,7 @@ APP_CSS = """
 body,
 .gradio-container {
   margin: 0 !important;
-  background: var(--iris-void) !important;
+  background: var(--iris-ink) !important;
   color: var(--iris-text) !important;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
 }
@@ -653,746 +518,524 @@ footer {
   display: none !important;
 }
 
-#iris-nucleus-click {
-  position: fixed !important;
-  top: calc(50vh - 156px);
-  left: calc(50vw - 128px);
-  z-index: 60 !important;
-  width: 256px !important;
-  height: 256px !important;
-  min-width: 256px !important;
-  min-height: 256px !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  border-radius: 50% !important;
-  color: transparent !important;
-  box-shadow: none !important;
-  opacity: 0.01;
-  cursor: pointer;
-}
-
-#iris-idea-modal {
-  position: fixed !important;
-  inset: 0 !important;
-  z-index: 100 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  margin: 0 !important;
-  padding: 24px !important;
-  border: 0 !important;
-  background: rgba(5, 5, 8, 0.82) !important;
-  backdrop-filter: blur(20px);
-}
-
-#iris-idea-modal .iris-modal-card {
-  position: absolute !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  width: min(680px, calc(100vw - 48px)) !important;
-  padding: 48px !important;
-  border: 1px solid rgba(180, 203, 206, 0.24) !important;
-  border-radius: 32px !important;
-  background: rgba(19, 19, 27, 0.48) !important;
-  box-shadow: 0 0 60px rgba(0, 218, 243, 0.14);
-  backdrop-filter: blur(22px);
-}
-
-#iris-idea-modal .iris-modal-card,
-#iris-idea-modal .iris-modal-card * {
-  color: var(--iris-text);
-}
-
-#iris-idea-modal .iris-modal-card p {
-  margin: 0 0 8px;
-  color: var(--iris-cyan-soft);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px;
-  text-transform: uppercase;
-}
-
-#iris-idea-modal .iris-modal-card h2 {
-  margin: 0 0 24px;
-  font-size: 32px;
-  font-weight: 300;
-  line-height: 1.2;
-}
-
-#iris-idea-input,
-#iris-idea-input label,
-#iris-idea-input > div {
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-#iris-idea-input textarea {
-  min-height: 132px !important;
-  border: 0 !important;
-  border-bottom: 1px solid rgba(180, 203, 206, 0.24) !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  color: var(--iris-text) !important;
-  font-family: "JetBrains Mono", ui-monospace, monospace !important;
-  font-size: 18px !important;
-  line-height: 1.55 !important;
-  box-shadow: none !important;
-}
-
-#iris-idea-input textarea:focus {
-  border-bottom-color: var(--iris-cyan) !important;
-  box-shadow: 0 12px 30px rgba(0, 218, 243, 0.08) !important;
-}
-
-.iris-modal-actions {
-  gap: 12px;
-  justify-content: flex-end;
-}
-
-.iris-modal-actions button,
-#iris-proceed button {
-  min-width: 136px !important;
-  border-radius: 999px !important;
-  border: 1px solid rgba(195, 245, 255, 0.6) !important;
-  background: transparent !important;
-  color: var(--iris-cyan-soft) !important;
-  font-family: "JetBrains Mono", ui-monospace, monospace !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
-  text-transform: uppercase !important;
-}
-
-#iris-proceed button {
-  box-shadow: 0 0 18px rgba(0, 218, 243, 0.22) !important;
-}
-
-#iris-proceed button:hover,
-.iris-modal-actions button:hover {
-  background: var(--iris-cyan) !important;
-  color: #00363d !important;
-}
-
-.iris-electron-control {
-  position: fixed !important;
-  z-index: 70 !important;
-  width: 58px !important;
-  height: 58px !important;
-  min-width: 58px !important;
-  min-height: 58px !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  border: 1px solid rgba(0, 218, 243, 0.74) !important;
-  border-radius: 50% !important;
-  background: rgba(0, 218, 243, 0.13) !important;
-  color: var(--iris-cyan-soft) !important;
-  font-family: "JetBrains Mono", ui-monospace, monospace !important;
-  font-size: 11px !important;
-  font-weight: 500 !important;
-  box-shadow: 0 0 22px rgba(0, 218, 243, 0.3) !important;
-}
-
-.iris-electron-control:hover {
-  background: rgba(0, 218, 243, 0.24) !important;
-  box-shadow: 0 0 34px rgba(0, 218, 243, 0.46) !important;
-  transform: scale(1.08);
-}
-
-#iris-electron-control-1 {
-  top: calc(50vh - 224px);
-  left: calc(50vw - 29px);
-}
-
-#iris-electron-control-2 {
-  top: calc(50vh - 62px);
-  left: calc(50vw + 132px);
-}
-
-#iris-electron-control-3 {
-  top: calc(50vh + 108px);
-  left: calc(50vw + 72px);
-}
-
-#iris-electron-control-4 {
-  top: calc(50vh + 108px);
-  left: calc(50vw - 132px);
-}
-
-.iris-spatial {
-  position: relative;
+.iris-board {
   width: 100%;
   min-height: 100vh;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(0, 218, 243, 0.08), transparent 18%),
-    radial-gradient(circle at 50% 52%, rgba(19, 19, 27, 0.38), transparent 36%),
-    var(--iris-void);
+  background: var(--iris-ink);
 }
 
-.iris-topbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 20;
-  width: 100%;
-  height: 80px;
-  display: grid;
-  grid-template-columns: 220px 1fr 220px;
+.iris-boardbar {
+  position: relative;
+  z-index: 10;
+  height: 64px;
+  display: flex;
   align-items: center;
-  padding: 0 40px;
-  border-bottom: 1px solid var(--iris-line);
-  background: rgba(19, 19, 27, 0.42);
-  backdrop-filter: blur(20px);
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 24px;
+  border-bottom: 1px solid rgba(154, 171, 188, 0.18);
+  background: rgba(8, 11, 15, 0.86);
+  backdrop-filter: blur(16px);
 }
 
-.iris-wordmark {
-  color: var(--iris-cyan);
-  font-size: 32px;
-  font-weight: 300;
-  line-height: 1;
-  text-shadow: 0 0 18px rgba(0, 218, 243, 0.55);
-}
-
-.iris-nav-links {
+.iris-brand-block {
   display: flex;
-  justify-content: center;
-  gap: 40px;
-  color: var(--iris-muted);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
 }
 
-.iris-nav-links span {
-  padding: 4px 0 8px;
-  border-bottom: 1px solid transparent;
-}
-
-.iris-nav-links .is-active {
-  color: var(--iris-cyan-soft);
-  border-bottom-color: var(--iris-cyan);
-}
-
-.iris-top-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 18px;
-}
-
-.iris-top-actions button {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  color: var(--iris-muted);
-  background: transparent;
-}
-
-.iris-top-actions button span {
-  width: 22px;
-  height: 22px;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-  position: relative;
-}
-
-.iris-top-actions button:first-child span::before,
-.iris-top-actions button:first-child span::after {
-  content: "";
-  position: absolute;
-  inset: 8px -5px;
-  border-top: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-}
-
-.iris-top-actions button:first-child span::after {
-  transform: rotate(90deg);
-}
-
-.iris-top-actions button:last-child span::before {
-  content: "";
-  position: absolute;
-  top: 4px;
-  left: 7px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.iris-top-actions button:last-child span::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  bottom: 3px;
-  width: 12px;
-  height: 7px;
-  border: 2px solid currentColor;
-  border-radius: 50% 50% 0 0;
-  border-bottom: 0;
-}
-
-.iris-rail {
-  position: absolute;
-  top: 80px;
-  left: 0;
-  bottom: 0;
-  z-index: 18;
-  width: 80px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 52px;
-  padding: 32px 0 26px;
-  border-right: 1px solid rgba(180, 203, 206, 0.1);
-  background: rgba(13, 13, 21, 0.22);
-  backdrop-filter: blur(18px);
-}
-
-.iris-rail-item {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  color: rgba(186, 201, 204, 0.62);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 500;
-  text-align: center;
-}
-
-.iris-rail-item span {
-  width: 42px;
-  height: 42px;
-  display: block;
-  border: 1px solid transparent;
-  border-radius: 50%;
-  position: relative;
-}
-
-.iris-rail-item span::before,
-.iris-rail-item span::after {
-  content: "";
-  position: absolute;
-  inset: 12px;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-}
-
-.iris-rail-item span::after {
-  inset: 17px;
-  background: currentColor;
-}
-
-.iris-rail-item.is-current {
-  color: var(--iris-cyan-soft);
-}
-
-.iris-rail-item.is-current span {
-  border-color: rgba(156, 240, 255, 0.55);
-  background: rgba(0, 218, 243, 0.1);
-  box-shadow: 0 0 22px rgba(0, 218, 243, 0.18);
-}
-
-.iris-rail-meter {
-  margin-top: auto;
-  display: grid;
-  place-items: center;
-  gap: 9px;
-  color: var(--iris-cyan-soft);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 10px;
-}
-
-.iris-rail-meter i {
-  width: 34px;
-  height: 34px;
-  display: block;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 218, 243, 0.42);
-  background:
-    radial-gradient(circle at 45% 45%, rgba(156, 240, 255, 0.82), transparent 8%),
-    radial-gradient(circle at center, rgba(0, 218, 243, 0.2), rgba(19, 19, 27, 0.65));
-}
-
-.iris-canvas {
-  position: relative;
-  min-height: 100vh;
-  padding: 80px 40px 54px 80px;
-  display: grid;
-  place-items: center;
-}
-
-.iris-orbit-ring {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  border: 1px solid var(--iris-line-faint);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-.iris-orbit-ring-1 { width: 280px; height: 280px; opacity: 0.95; }
-.iris-orbit-ring-2 { width: 500px; height: 500px; opacity: 0.62; }
-.iris-orbit-ring-3 { width: 760px; height: 760px; opacity: 0.42; }
-.iris-orbit-ring-4 { width: 1080px; height: 1080px; opacity: 0.28; }
-.iris-orbit-ring-5 { width: 1420px; height: 1420px; opacity: 0.18; }
-
-.iris-stardust {
-  position: absolute;
-  inset: 80px 0 0 80px;
-  pointer-events: none;
-}
-
-.iris-stardust span {
-  position: absolute;
-  width: 2px;
-  height: 2px;
-  display: block;
-  border-radius: 50%;
-  background: rgba(0, 218, 243, 0.62);
-}
-
-.iris-stardust .is-large {
-  width: 3px;
-  height: 3px;
-  background: rgba(186, 201, 204, 0.58);
-}
-
-.iris-nucleus-wrap {
-  position: relative;
-  z-index: 5;
-  width: 320px;
-  height: 320px;
-  display: grid;
-  place-items: center;
-  transform: translateY(-28px);
-}
-
-.iris-nucleus-halo {
-  position: absolute;
-  inset: -66px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(0, 218, 243, 0.16), transparent 60%);
-  filter: blur(12px);
-}
-
-.iris-nucleus {
-  position: relative;
-  z-index: 2;
-  width: 256px;
-  height: 256px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(180, 203, 206, 0.24);
-  border-radius: 50%;
-  background: rgba(19, 19, 27, 0.42);
-  backdrop-filter: blur(20px);
+.iris-brand-block strong {
   color: var(--iris-text);
-  box-shadow:
-    0 0 60px rgba(0, 218, 243, 0.28),
-    inset 0 0 22px rgba(0, 218, 243, 0.16);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.iris-core-symbol {
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 12px;
-  border: 4px solid var(--iris-cyan-soft);
-  border-radius: 50%;
-  box-shadow: 0 0 24px rgba(156, 240, 255, 0.5);
+.iris-brand-block span,
+.iris-board-status span,
+.iris-frame-header span,
+.iris-card-kicker,
+.iris-connector span,
+.iris-alternative,
+.iris-card-center dt {
+  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, ui-monospace, monospace;
 }
 
-.iris-core-symbol i {
-  width: 16px;
-  height: 16px;
-  display: block;
-  border-radius: 50%;
-  background: var(--iris-cyan-soft);
-}
-
-.iris-core-label {
+.iris-brand-block span {
   color: var(--iris-muted);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
 }
 
-.iris-data-chip {
-  position: absolute;
-  z-index: 4;
-  min-width: 124px;
-  padding: 6px 13px;
-  border: 1px solid rgba(180, 203, 206, 0.24);
-  border-radius: 999px;
-  background: rgba(19, 19, 27, 0.48);
-  color: var(--iris-cyan-soft);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
-  white-space: nowrap;
-  backdrop-filter: blur(18px);
+.iris-board-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
 }
 
-.iris-chip-status {
-  top: 50px;
-  right: -88px;
-}
-
-.iris-chip-latency {
-  bottom: 54px;
-  left: -86px;
+.iris-board-status span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid rgba(154, 171, 188, 0.18);
+  border-radius: 8px;
   color: var(--iris-muted);
+  background: rgba(18, 24, 31, 0.72);
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
-.iris-electron-shell {
+.iris-board-status span:first-child {
+  color: var(--iris-cyan);
+  border-color: rgba(102, 217, 215, 0.32);
+}
+
+.iris-canvas-viewport {
+  height: calc(100vh - 64px);
+  overflow: auto;
+  background:
+    radial-gradient(circle at 20% 12%, rgba(102, 217, 215, 0.14), transparent 25%),
+    radial-gradient(circle at 75% 70%, rgba(220, 123, 210, 0.12), transparent 28%),
+    var(--iris-canvas);
+}
+
+.iris-canvas-v2 {
+  position: relative;
+  width: 1580px;
+  min-width: 100%;
+  height: 1080px;
+  overflow: hidden;
+  cursor: grab;
+  background-image:
+    linear-gradient(rgba(154, 171, 188, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 171, 188, 0.045) 1px, transparent 1px),
+    radial-gradient(circle, rgba(154, 171, 188, 0.22) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 24px 24px;
+  background-position: -1px -1px, -1px -1px, 0 0;
+}
+
+.iris-canvas-grid {
   position: absolute;
   inset: 0;
-  z-index: 6;
+  pointer-events: none;
+  background:
+    linear-gradient(120deg, transparent 0 44%, rgba(102, 217, 215, 0.08) 45%, transparent 46% 100%),
+    linear-gradient(25deg, transparent 0 66%, rgba(233, 185, 73, 0.08) 67%, transparent 68% 100%);
+  opacity: 0.75;
+}
+
+.iris-depth-thread {
+  position: absolute;
+  width: 1px;
+  height: 720px;
+  background: linear-gradient(180deg, rgba(102, 217, 215, 0), rgba(102, 217, 215, 0.44), rgba(102, 217, 215, 0));
+  transform: rotate(18deg);
   pointer-events: none;
 }
 
-.iris-electron {
+.iris-depth-thread-primary {
+  top: 86px;
+  left: 492px;
+}
+
+.iris-depth-thread-secondary {
+  top: 276px;
+  left: 1180px;
+  opacity: 0.38;
+}
+
+.iris-frame {
   position: absolute;
-  width: 52px;
-  height: 52px;
+  border: 1px solid var(--iris-frame-line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
+    var(--iris-frame);
+  box-shadow: 0 24px 70px var(--iris-shadow);
+  backdrop-filter: blur(12px);
+}
+
+.iris-frame-primary {
+  top: 96px;
+  left: 138px;
+  width: 820px;
+  min-height: 790px;
+  padding: 22px;
+}
+
+.iris-frame-secondary {
+  top: 274px;
+  left: 1052px;
+  width: 360px;
+  min-height: 300px;
+  padding: 18px;
+  opacity: 0.78;
+}
+
+.iris-frame-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 0;
+  margin-bottom: 18px;
+}
+
+.iris-frame-header div:first-child {
+  min-width: 0;
+}
+
+.iris-frame-header span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--iris-muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.iris-frame-header strong {
+  display: block;
+  max-width: 460px;
+  color: var(--iris-text);
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.iris-frame-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.iris-frame-badges span {
+  min-height: 25px;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid rgba(154, 171, 188, 0.18);
+  border-radius: 8px;
+  color: var(--iris-muted);
+  background: rgba(7, 9, 13, 0.46);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.iris-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.iris-card {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.22);
+}
+
+.iris-card-idea,
+.iris-card-iteration {
+  max-width: 642px;
+  padding: 22px 24px;
+  background: var(--iris-card-light);
+  color: var(--iris-ink-text);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.iris-card-iteration {
+  background: var(--iris-card-cream);
+  border-color: rgba(233, 185, 73, 0.5);
+}
+
+.iris-card-kicker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: var(--iris-muted-strong);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.iris-card-idea .iris-card-kicker,
+.iris-card-iteration .iris-card-kicker {
+  color: #25313d !important;
+  font-weight: 700;
+}
+
+.iris-card-idea .iris-card-kicker span,
+.iris-card-iteration .iris-card-kicker span {
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: #25313d !important;
+  background: rgba(23, 32, 42, 0.08);
+}
+
+.iris-card-ai .iris-card-kicker,
+.iris-card-ai .iris-card-kicker span,
+.iris-card-center .iris-card-kicker,
+.iris-card-center .iris-card-kicker span {
+  color: #c7d0d9 !important;
+}
+
+.iris-card-kicker span:first-child {
+  white-space: nowrap;
+}
+
+.iris-card-kicker span:last-child {
+  text-align: right;
+}
+
+.iris-card p,
+.iris-card h3,
+.iris-card dl {
+  margin: 0;
+}
+
+.iris-card-idea p,
+.iris-card-iteration p {
+  color: var(--iris-ink-text);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.32;
+}
+
+.iris-connector {
+  width: 100%;
+  height: 54px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(0, 218, 243, 0.7);
-  border-radius: 50%;
-  background: rgba(0, 218, 243, 0.12);
-  color: var(--iris-cyan-soft);
-  box-shadow: 0 0 20px rgba(0, 218, 243, 0.28);
-  pointer-events: auto;
+  position: relative;
+  color: rgba(174, 185, 196, 0.76);
 }
 
-.iris-electron span {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 10px;
-}
-
-.iris-electron small {
+.iris-connector::before {
+  content: "";
   position: absolute;
-  top: 58px;
+  top: 0;
+  bottom: 0;
   left: 50%;
-  max-width: 220px;
-  padding: 6px 10px;
-  border: 1px solid rgba(180, 203, 206, 0.2);
-  border-radius: 999px;
-  background: rgba(31, 31, 39, 0.72);
+  width: 1px;
+  background: linear-gradient(180deg, rgba(174, 185, 196, 0), rgba(174, 185, 196, 0.44), rgba(174, 185, 196, 0));
+}
+
+.iris-connector span {
+  position: relative;
+  z-index: 1;
+  padding: 4px 8px;
+  border: 1px solid rgba(154, 171, 188, 0.18);
+  border-radius: 8px;
+  background: rgba(13, 20, 29, 0.9);
   color: var(--iris-muted);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 10px;
-  line-height: 1.3;
-  text-align: center;
-  transform: translateX(-50%);
+  line-height: 1;
 }
 
-.iris-electron-a { top: 2px; left: 50%; transform: translateX(-50%); }
-.iris-electron-b { top: 98px; right: -6px; }
-.iris-electron-c { bottom: 22px; right: 40px; }
-.iris-electron-d { bottom: 22px; left: 40px; }
-.iris-electron-e { top: 98px; left: -6px; }
-
-.iris-hero-copy {
-  position: absolute;
-  left: 50%;
-  bottom: 64px;
-  z-index: 8;
-  width: min(680px, calc(100vw - 160px));
-  text-align: center;
-  transform: translateX(-50%);
+.iris-ai-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
 }
 
-.iris-hero-copy h1 {
-  margin: 0;
+.iris-card-ai {
+  min-height: 226px;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(102, 217, 215, 0.08), rgba(102, 217, 215, 0)),
+    var(--iris-card-dark);
+  border-color: rgba(102, 217, 215, 0.22);
   color: var(--iris-text);
-  font-size: 48px;
-  font-weight: 300;
-  line-height: 1.12;
 }
 
-.iris-hero-label {
-  margin: 16px auto 0;
-  color: var(--iris-muted);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.5;
-  text-transform: uppercase;
+.iris-card-ai:nth-child(2) {
+  border-color: rgba(220, 123, 210, 0.34);
+  background:
+    linear-gradient(180deg, rgba(220, 123, 210, 0.08), rgba(220, 123, 210, 0)),
+    var(--iris-card-dark);
 }
 
-.iris-context-panel {
-  position: absolute;
-  right: 40px;
-  top: 130px;
-  z-index: 9;
-  width: 310px;
-  padding: 24px;
-  border: 1px solid var(--iris-line);
-  border-radius: 32px;
-  background: rgba(19, 19, 27, 0.38);
-  backdrop-filter: blur(20px);
+.iris-card-ai:nth-child(3) {
+  border-color: rgba(183, 227, 123, 0.34);
+  background:
+    linear-gradient(180deg, rgba(183, 227, 123, 0.08), rgba(183, 227, 123, 0)),
+    var(--iris-card-dark);
 }
 
-.iris-context-panel span,
-.iris-context-panel dt {
-  color: var(--iris-cyan-soft);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
+.iris-card-ai.is-selected {
+  border-color: rgba(233, 185, 73, 0.76);
+  box-shadow: 0 0 0 1px rgba(233, 185, 73, 0.2), 0 20px 44px rgba(0, 0, 0, 0.28);
 }
 
-.iris-context-panel p {
-  margin: 18px 0 22px;
+.iris-card-ai h3 {
   color: var(--iris-text);
   font-size: 15px;
-  line-height: 1.55;
+  font-weight: 680;
+  line-height: 1.28;
 }
 
-.iris-context-panel dl {
-  margin: 0;
-  display: grid;
-  gap: 12px;
-}
-
-.iris-context-panel div {
-  display: grid;
-  grid-template-columns: 80px minmax(0, 1fr);
-  gap: 12px;
-  border-top: 1px solid rgba(180, 203, 206, 0.1);
-  padding-top: 12px;
-}
-
-.iris-context-panel dd {
-  margin: 0;
-  overflow-wrap: anywhere;
+.iris-card-ai p {
+  margin-top: 12px;
   color: var(--iris-muted);
-  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.iris-alternative {
+  display: block;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(154, 171, 188, 0.16);
+  color: var(--iris-lime);
   font-size: 11px;
+  line-height: 1.35;
+}
+
+.iris-card-empty {
+  grid-column: 1 / -1;
+  min-height: 132px;
+  border-style: dashed;
+}
+
+.iris-card-ai.is-pending,
+.iris-card-center.is-pending {
+  position: relative;
+  overflow: hidden;
+}
+
+.iris-card-ai.is-pending i,
+.iris-card-center.is-pending i {
+  position: absolute;
+  inset: auto 18px 18px 18px;
+  height: 8px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(102, 217, 215, 0.12), rgba(102, 217, 215, 0.48), rgba(102, 217, 215, 0.12));
+  animation: iris-pulse 1.8s ease-in-out infinite;
+}
+
+.iris-card-center {
+  max-width: 642px;
+  padding: 22px 24px;
+  border-color: rgba(183, 227, 123, 0.45);
+  background:
+    linear-gradient(180deg, rgba(183, 227, 123, 0.1), rgba(183, 227, 123, 0)),
+    var(--iris-card-darker);
+  color: var(--iris-text);
+}
+
+.iris-card-center h3 {
+  color: var(--iris-text);
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.36;
+}
+
+.iris-card-center dl {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.iris-card-center div {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.iris-card-center dt {
+  color: var(--iris-muted);
+  font-size: 11px;
+}
+
+.iris-card-center dd {
+  margin: 0;
+  color: var(--iris-text);
+  font-size: 13px;
   line-height: 1.4;
 }
 
-.status-ready .iris-context-panel {
-  display: none;
+.iris-mini-stack {
+  display: grid;
+  gap: 12px;
 }
 
-.status-error .iris-data-chip {
-  color: #ffb4ab;
-  border-color: rgba(255, 180, 171, 0.34);
+.iris-mini-stack div {
+  height: 68px;
+  border: 1px solid rgba(154, 171, 188, 0.22);
+  border-radius: 8px;
+  background: rgba(244, 240, 232, 0.88);
 }
 
-@media (max-width: 900px) {
-  .iris-topbar {
-    height: 72px;
-    grid-template-columns: 1fr auto;
-    padding: 0 20px;
+.iris-mini-stack div:nth-child(2) {
+  margin-left: 24px;
+  background: rgba(17, 25, 35, 0.92);
+  border-color: rgba(102, 217, 215, 0.22);
+}
+
+.iris-mini-stack div:nth-child(3) {
+  margin-left: 48px;
+  background: rgba(255, 250, 240, 0.88);
+  border-color: rgba(233, 185, 73, 0.42);
+}
+
+@keyframes iris-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: translateX(-8px);
   }
-
-  .iris-nav-links,
-  .iris-top-actions {
-    display: none;
-  }
-
-  .iris-rail {
-    display: none;
-  }
-
-  .iris-canvas {
-    padding: 72px 20px 40px;
-  }
-
-  .iris-nucleus-wrap {
-    width: 260px;
-    height: 260px;
-    transform: translateY(-14px);
-  }
-
-  .iris-nucleus {
-    width: 210px;
-    height: 210px;
-  }
-
-  .iris-orbit-ring-1 { width: 260px; height: 260px; }
-  .iris-orbit-ring-2 { width: 420px; height: 420px; }
-  .iris-orbit-ring-3 { width: 620px; height: 620px; }
-  .iris-orbit-ring-4 { width: 860px; height: 860px; }
-  .iris-orbit-ring-5 { width: 1100px; height: 1100px; }
-
-  .iris-chip-status {
-    top: 24px;
-    right: -42px;
-  }
-
-  .iris-chip-latency {
-    bottom: 30px;
-    left: -42px;
-  }
-
-  .iris-hero-copy {
-    bottom: 42px;
-    width: min(520px, calc(100vw - 40px));
-  }
-
-  .iris-hero-copy h1 {
-    font-size: 34px;
-  }
-
-  .iris-context-panel {
-    display: none;
+  50% {
+    opacity: 1;
+    transform: translateX(8px);
   }
 }
 
-@media (max-width: 520px) {
-  .iris-wordmark {
-    font-size: 28px;
+@media (max-width: 760px) {
+  .iris-boardbar {
+    height: auto;
+    min-height: 72px;
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 14px;
   }
 
-  .iris-nucleus-wrap {
-    width: 220px;
-    height: 220px;
+  .iris-board-status {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
 
-  .iris-nucleus {
-    width: 184px;
-    height: 184px;
+  .iris-canvas-viewport {
+    height: calc(100vh - 98px);
   }
 
-  .iris-core-symbol {
-    width: 42px;
-    height: 42px;
+  .iris-canvas-v2 {
+    width: 1120px;
+    height: 1040px;
   }
 
-  .iris-data-chip {
-    position: static;
-    margin-top: 10px;
-    text-align: center;
+  .iris-frame-primary {
+    top: 72px;
+    left: 42px;
+    width: 730px;
   }
 
-  .iris-chip-latency {
-    display: none;
-  }
-
-  .iris-hero-copy h1 {
-    font-size: 28px;
-  }
-
-  .iris-hero-label {
-    font-size: 10px;
+  .iris-frame-secondary {
+    top: 156px;
+    left: 824px;
   }
 }
 """

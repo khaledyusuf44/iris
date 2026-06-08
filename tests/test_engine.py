@@ -467,7 +467,7 @@ class EngineTests(unittest.TestCase):
         self.assertIn("no_advice_language", failures)
         self.assertIn("concrete_center", failures)
 
-    def test_ui_render_includes_spatial_canvas_and_center(self) -> None:
+    def test_ui_render_includes_canvas_frame_and_center_card(self) -> None:
         html = render_spiral_html(
             SpiralView(
                 idea="A marketplace for renting tools between neighbors.",
@@ -489,12 +489,16 @@ class EngineTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("iris-spatial", html)
+        self.assertIn("iris-board", html)
+        self.assertIn("iris-canvas-v2", html)
+        self.assertIn("iris-frame-primary", html)
+        self.assertIn("iris-card-center", html)
         self.assertIn("IRIS", html)
-        self.assertIn("Core", html)
+        self.assertIn("Pressure canvas", html)
         self.assertIn("Ask one neighbor", html)
         self.assertIn("informal agreements are not enough", html)
         self.assertIn("status-complete", html)
+        self.assertNotIn("iris-electron", html)
 
     def test_ui_render_shows_pending_ring_state(self) -> None:
         html = render_spiral_html(
@@ -509,9 +513,9 @@ class EngineTests(unittest.TestCase):
 
         self.assertIn("Real Actor is next.", html)
         self.assertIn("Real Actor forming", html)
-        self.assertIn("iris-electron", html)
-        self.assertIn(">R2<", html)
-        self.assertNotIn("iris-pending-card", html)
+        self.assertIn("iris-card-ai is-pending", html)
+        self.assertIn("AI pressure", html)
+        self.assertNotIn("iris-electron", html)
 
     def test_ui_render_shows_center_pending_state(self) -> None:
         html = render_spiral_html(
@@ -531,10 +535,10 @@ class EngineTests(unittest.TestCase):
         )
 
         self.assertIn("Center is forming.", html)
-        self.assertIn("Center forming", html)
-        self.assertIn(">CENTER<", html)
+        self.assertIn("Next step pending", html)
+        self.assertIn("iris-card-center is-pending", html)
 
-    def test_ui_session_to_view_selects_latest_pressure(self) -> None:
+    def test_ui_session_to_view_selects_latest_pressure_card(self) -> None:
         session = SpatialSession(
             idea="A marketplace for renting tools between neighbors.",
             pressures=[
@@ -545,7 +549,7 @@ class EngineTests(unittest.TestCase):
                 )
             ],
             status="waiting",
-            message="Click the R1 electron to descend.",
+            message="R1 pressure card selected.",
             selected_depth=1,
         )
 
@@ -553,8 +557,10 @@ class EngineTests(unittest.TestCase):
 
         self.assertIn("What happens when a borrowed tool breaks?", html)
         self.assertIn("The trust failure appears", html)
-        self.assertIn(">R1<", html)
+        self.assertIn("Reality Contact", html)
+        self.assertIn("is-selected", html)
         self.assertIn("status-waiting", html)
+        self.assertNotIn("electron", html.lower())
 
     def test_ui_render_escapes_user_content(self) -> None:
         html = render_spiral_html(

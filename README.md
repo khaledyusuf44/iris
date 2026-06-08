@@ -6,15 +6,17 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 2 is focused on the Gradio product experience after
-the Day 1f engine gate passed. Latest validation note: Stage 2 core Stitch flow
-works end to end. See `docs/validation/day2-stage2-core-flow.md`.
+the Day 1f engine gate passed. Latest validation note: Iris UI v2 Stage 1
+replaces the circle metaphor with a static FigJam-style canvas of stacking
+idea and AI pressure cards. See
+`docs/validation/day2-v2-stage1-canvas-static.md`.
 
 ## Current Status
 
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
 - Python validation engine: Day 1 gate passed.
-- Gradio UI: Day 2 Stage 2 core spatial flow passing local browser smoke.
+- Gradio UI: Iris UI v2 Stage 1 static canvas/card look under review.
 - Project docs: see `docs/`.
 
 ## Repo Layout
@@ -29,7 +31,7 @@ iris/                     Python package for the constraint engine
 scripts/check_repo.sh     Lightweight repository health check
 scripts/validate_gate.py  Seed spiral run plus automated sharpness gate
 stitch_iris_atomic_infinite_zoom/
-                          Google Stitch atomic UI export
+                          Earlier Google Stitch atomic UI export/reference
 tests/                    Tests, once added
 ```
 
@@ -104,6 +106,6 @@ endpoint environment variables set before launching.
 ## Next Inputs Needed
 
 - MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Human review of the Day 2 Stage 2 clickable Stitch flow.
-- Approval to proceed to Stage 3: forming particles, orbit drift, and smooth
-  zoom transitions.
+- Human review of the Iris UI v2 Stage 1 canvas/card screenshot.
+- Approval to proceed to Stage 2: click-to-create frames, idea input,
+  engine-backed AI pressure cards, and stacked next iterations.
