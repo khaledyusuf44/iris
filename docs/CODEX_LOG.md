@@ -310,3 +310,31 @@ Validation:
   Frame 1, submitted a tool-rental idea, rendered four live direction cards,
   and showed the next editable Idea v2 card below them.
 - Iris quality gate: not rerun for this UI checkpoint.
+
+### 6cb6709 - Harden MiniCPM split JSON parsing
+
+Date: 2026-06-08
+
+- Fixed a live MiniCPM failure where reasoning-mode output returned one JSON
+  object with `pressure_question`, then a later final JSON object with
+  `why_it_bites`.
+- Added targeted parser support for selecting the embedded JSON object that
+  contains the requested key without changing the default first-object parser
+  behavior.
+- Added `pressure_question` aliases across the direction engine and repair
+  prompts.
+- Treated `build` as a generic grounding stop word so placeholder ideas like
+  `build idea` do not fail only because the model did not repeat `build`.
+- Added parser and engine regression tests for split thinking/final JSON output
+  and rough placeholder input.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860` with local MiniCPM: submitted
+  `build idea`, rendered 4 live pressure cards, and avoided the previous
+  `why_it_bites` parse failure.
+- Iris quality gate: not rerun for this UI parser bugfix.
