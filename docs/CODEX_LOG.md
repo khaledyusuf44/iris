@@ -224,3 +224,29 @@ Validation:
   Proceed returned R1 from local MiniCPM, R1-R4 clicks advanced through the
   engine depths, R4 reached the center, and desktop/mobile layouts had no
   horizontal overflow.
+
+### d87b0da - Build UI v2 canvas card checkpoint
+
+Date: 2026-06-08
+
+- Replaced the Day 2 circle visual layer with a static FigJam-style canvas and
+  stacking idea/AI pressure cards.
+- Added the primary idea frame, three AI pressure cards, a next-iteration idea
+  card, and a secondary frame preview.
+- Updated UI tests and docs for the v2 canvas/card checkpoint while leaving the
+  validated engine unchanged.
+- Added the Stage 1 screenshot at
+  `docs/validation/day2-v2-stage1-canvas-static.png`.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860`: desktop screenshot captured
+  at `1440x900`; the rendered UI had 3 AI cards, 2 idea cards, no visible
+  circle/electron labels, and no page-level horizontal overflow. A mobile
+  screenshot check at `390x844` confirmed the frame remains inside a scrollable
+  canvas.
+- Iris quality gate: not rerun for this visual-only checkpoint.
