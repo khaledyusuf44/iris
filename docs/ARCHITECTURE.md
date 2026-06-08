@@ -32,6 +32,16 @@ stitch_iris_atomic_infinite_zoom/
 - Document runtime requirements as soon as they are known.
 - Keep configuration explicit and keep secrets out of Git.
 
+## Hackathon Constraints
+
+- Preserve the local MiniCPM path for the Off-the-Grid submission story.
+- Keep the custom canvas UI clearly beyond default Gradio.
+- Keep MiniCPM load-bearing: the model writes pressure, while Python validates,
+  formats, and re-prompts.
+- Build toward the screen-recordable demo moment: idea, four pressures, sharper
+  next iteration.
+- See `BUILD_SMALL_FIELD_GUIDE.md` for badge and submission guidance.
+
 ## Engine Flow
 
 ```text

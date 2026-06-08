@@ -20,6 +20,7 @@ pan, toolbar pan, and focus controls. See
   four-direction pressure cards plus canvas navigation polish are ready for
   Khalid review.
 - Project docs: see `docs/`.
+- Hackathon build guidance: see `docs/BUILD_SMALL_FIELD_GUIDE.md`.
 
 ## Repo Layout
 
@@ -28,6 +29,8 @@ AGENTS.md                 AI/core contributor operating notes
 CONTRIBUTING.md           Human contributor workflow
 app.py                    Hugging Face Spaces / Gradio entrypoint
 docs/                     Project planning, roadmap, and architecture notes
+docs/BUILD_SMALL_FIELD_GUIDE.md
+                          Hackathon badge, demo, and submission guidance
 docs/CODEX_LOG.md         Codex work log and validation history
 iris/                     Python package for the constraint engine
 scripts/check_repo.sh     Lightweight repository health check

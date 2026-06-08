@@ -12,7 +12,7 @@ Status: complete.
 
 ## Phase 1: Source Intake
 
-Status: in progress.
+Status: complete.
 
 - Add Python validation engine.
 - Wire MiniCPM through an OpenAI-compatible endpoint.
@@ -21,17 +21,23 @@ Status: in progress.
 
 ## Phase 2: Core Implementation
 
-Status: pending.
+Status: in progress.
 
 - Build the Gradio app after the engine clears the validation gate.
-- Embed the custom Iris chamber UI through HTML/CSS/JS.
+- Embed the custom Iris canvas/cards UI through HTML/CSS/JS.
+- Keep the four-pressure demo flow smooth and screen-recordable.
+- Preserve local MiniCPM as the load-bearing AI path.
 - Preserve the "pressure, not answer" product rule.
 
 ## Phase 3: Release and Hosting
 
 Status: pending.
 
-- Choose hosting target.
+- Deploy the Gradio app as a Hugging Face Space under the hackathon
+  organization.
 - Add deployment configuration.
 - Add CI checks.
-- Prepare release notes and operational docs.
+- Add demo video and social post links to the README.
+- Prepare release notes, field notes, and operational docs.
+- Optional: investigate llama.cpp serving for an extra badge only if it does not
+  risk the working local MiniCPM path.
