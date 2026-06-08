@@ -338,3 +338,29 @@ Validation:
   `build idea`, rendered 4 live pressure cards, and avoided the previous
   `why_it_bites` parse failure.
 - Iris quality gate: not rerun for this UI parser bugfix.
+
+### b8d5c2f - Polish canvas navigation controls
+
+Date: 2026-06-08
+
+- Added native-feeling canvas navigation: empty-space drag pan, wheel pan,
+  Ctrl/Cmd-wheel and Alt-wheel zoom, keyboard zoom/focus shortcuts, toolbar pan
+  arrows, and Focus active frame.
+- Made frame headers draggable handles so individual idea frames can move
+  independently on the canvas.
+- Kept textareas and buttons as normal form controls while allowing pan/zoom
+  around frame bodies.
+- Updated README, architecture notes, UI contract tests, and the validation
+  screenshot/note at `docs/validation/day2-v2-canvas-navigation.md`.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860`: created one frame, dragged
+  the frame header, panned empty canvas without creating an extra frame,
+  Ctrl-wheel zoomed over the frame, toolbar pan moved the world, and Focus
+  recentered the active frame.
+- Iris quality gate: not rerun for this UI navigation checkpoint.
