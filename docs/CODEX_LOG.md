@@ -280,3 +280,33 @@ Validation:
 - Final smoke metrics: 2 frames, 2 live AI pressure cards, 4 idea cards, no old
   circle/electron labels, no page-level horizontal overflow.
 - Iris quality gate: not rerun for this visual/UI checkpoint.
+
+### b494dcc - Add live four-direction pressure cards
+
+Date: 2026-06-08
+
+- Changed the live canvas Proceed flow from one AI pressure card to a
+  four-card pressure set: Constraints, Limitations, Capabilities, and Reality
+  Contact.
+- Added direction-specific prompts and engine parsing so each card is still
+  authored by MiniCPM, with Python only enforcing format, risk-only bite
+  language, repeat checks, and missing-field repairs through model re-prompts.
+- Updated the canvas UI to render pressure sets in a two-by-two card grid,
+  keep depth as one round per pressure set, and pass all prior pressure cards
+  back to the engine for later iterations.
+- Added tests for the four-direction payload, prior-card formatting, missing
+  `why_it_bites` repair, and nested missing-pressure repair.
+- Added the Fix 1 validation note and screenshot at
+  `docs/validation/day2-v2-fix1-four-pressures.md` and
+  `docs/validation/day2-v2-fix1-four-pressures.png`.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860` with local MiniCPM: created
+  Frame 1, submitted a tool-rental idea, rendered four live direction cards,
+  and showed the next editable Idea v2 card below them.
+- Iris quality gate: not rerun for this UI checkpoint.
