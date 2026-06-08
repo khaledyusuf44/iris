@@ -250,3 +250,33 @@ Validation:
   screenshot check at `390x844` confirmed the frame remains inside a scrollable
   canvas.
 - Iris quality gate: not rerun for this visual-only checkpoint.
+
+### 4cb4509 - Wire live canvas card interactions
+
+Date: 2026-06-08
+
+- Replaced the static v2 canvas with a live in-memory canvas app: click-to-create
+  frames, editable idea cards, Proceed actions, iteration cards, multiple
+  independent frames, zoom controls, wheel zoom, and drag panning.
+- Added a named Gradio API bridge so browser JavaScript calls the server-side
+  `IrisEngine` for live MiniCPM pressure cards and center distillation.
+- Added API-contract tests for live pressure payloads, prior-card constraint
+  formatting, center payloads, and the empty interactive shell.
+- Kept the validated engine logic unchanged.
+- Added the live validation screenshot at
+  `docs/validation/day2-v2-live-interactive.png`.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860` with local MiniCPM: created
+  Frame 1, submitted a tool-rental idea, rendered a live Reality Contact card,
+  submitted an Idea v2 refinement, rendered a live Real Actor card, created a
+  second independent frame, used zoom controls, drag-panned, and confirmed no
+  extra frame was created by the drag fallback.
+- Final smoke metrics: 2 frames, 2 live AI pressure cards, 4 idea cards, no old
+  circle/electron labels, no page-level horizontal overflow.
+- Iris quality gate: not rerun for this visual/UI checkpoint.
