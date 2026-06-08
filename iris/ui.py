@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from html import escape
-from typing import Iterable
+import json
+from typing import Any, Iterable
 
 from iris.engine import IrisEngine, PressureResult
 from iris.errors import IrisError
@@ -66,46 +67,168 @@ def create_app():
     with gr.Blocks(
         title="Iris",
         css=APP_CSS,
+        js=APP_JS,
         analytics_enabled=False,
+        fill_width=True,
     ) as demo:
         gr.HTML(
-            render_spiral_html(sample_canvas_view()),
+            render_interactive_canvas_html(),
             elem_id="iris-stage",
+            container=False,
+            padding=False,
+        )
+        engine_request = gr.Textbox(visible=False, elem_id="iris-engine-request")
+        engine_response = gr.Textbox(visible=False, elem_id="iris-engine-response")
+        engine_trigger = gr.Button(
+            "Run Iris engine",
+            visible=False,
+            elem_id="iris-engine-trigger",
+        )
+        engine_trigger.click(
+            handle_canvas_request,
+            inputs=engine_request,
+            outputs=engine_response,
+            api_name="iris_canvas_engine",
+            show_progress="hidden",
         )
 
     return demo
 
 
-def sample_canvas_view() -> SpiralView:
-    return SpiralView(
-        idea="A marketplace for renting tools between neighbors.",
-        rings=[
-            RingView(
-                depth=1,
-                pressure="What happens when a neighbor returns a borrowed tool broken?",
-                why_it_bites="The trust failure appears before marketplace supply matters.",
-            ),
-            RingView(
-                depth=2,
-                pressure="Who decides whether a tool is safe enough to lend?",
-                why_it_bites="The owner may carry the real risk while the renter gets the visible benefit.",
-            ),
-            RingView(
-                depth=3,
-                pressure="What do neighbors use today when a power saw is needed quickly: hardware store rentals?",
-                why_it_bites="A store rental may already solve the urgent access moment.",
-                alternative="hardware store rentals",
-            ),
-        ],
-        status="ready",
-        message="Canvas checkpoint ready.",
-        selected_depth=2,
-        iteration=(
-            "Focus the next pass on one Saturday pickup between neighbors who already "
-            "know each other and need a power drill before stores close."
-        ),
-        frame_title="Tool rental pressure stack",
-    )
+def handle_canvas_request(request_json: str) -> str:
+    return run_canvas_engine(request_json)
+
+
+def run_canvas_engine(
+    request_json: str,
+    *,
+    engine: IrisEngine | None = None,
+) -> str:
+    try:
+        request = json.loads(request_json)
+        if not isinstance(request, dict):
+            raise ValueError("Engine request must be a JSON object.")
+
+        frame_id = str(request.get("frame_id", ""))
+        idea = _required_text(request, "idea")
+        depth = _required_depth(request)
+        prior_cards = _pressure_cards(request.get("prior_cards", []))
+        constraints = pressure_cards_to_constraints(prior_cards)
+        iris = engine or IrisEngine()
+
+        if depth <= RINGS:
+            result = iris.pressure(idea, constraints, depth, RINGS)
+            payload: dict[str, Any] = {
+                "ok": True,
+                "kind": "pressure",
+                "frame_id": frame_id,
+                "depth": depth,
+                "ring_label": ring_name(depth),
+                "pressure": result.pressure,
+                "why_it_bites": result.why_it_bites,
+            }
+            if result.alternative:
+                payload["alternative"] = result.alternative
+            return json.dumps(payload)
+
+        if depth == RINGS + 1:
+            result = iris.distill(idea, constraints)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "kind": "center",
+                    "frame_id": frame_id,
+                    "depth": depth,
+                    "ring_label": "Center",
+                    "actor": result.actor,
+                    "situation": result.situation,
+                    "assumption_to_test": result.assumption_to_test,
+                    "next_step": result.next_step,
+                }
+            )
+
+        raise ValueError("This frame has already reached the center.")
+    except (IrisError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        return json.dumps({"ok": False, "message": str(exc)})
+
+
+def pressure_cards_to_constraints(cards: list[dict[str, Any]]) -> list[str]:
+    constraints: list[str] = []
+    for card in cards:
+        pressure = str(card.get("pressure", "")).strip()
+        why = str(card.get("why_it_bites", "")).strip()
+        if not pressure or not why:
+            continue
+        alternative = str(card.get("alternative", "")).strip() or None
+        constraints.append(
+            PressureResult(
+                pressure=pressure,
+                why_it_bites=why,
+                raw="",
+                alternative=alternative,
+            ).as_constraint()
+        )
+    return constraints
+
+
+def _required_text(data: dict[str, Any], key: str) -> str:
+    value = data.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Expected non-empty string field: {key}")
+    return value.strip()
+
+
+def _required_depth(data: dict[str, Any]) -> int:
+    value = data.get("depth")
+    if isinstance(value, bool):
+        raise ValueError("depth must be an integer")
+    try:
+        depth = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("depth must be an integer") from exc
+    if depth < 1:
+        raise ValueError("depth must be positive")
+    return depth
+
+
+def _pressure_cards(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("prior_cards must be a list")
+    cards: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            cards.append(item)
+    return cards
+
+
+def render_interactive_canvas_html() -> str:
+    return """
+<section class="iris-board status-ready" id="iris-board">
+  <header class="iris-boardbar" aria-label="Iris canvas header">
+    <div class="iris-brand-block">
+      <strong>IRIS</strong>
+      <span>Pressure canvas</span>
+    </div>
+    <div class="iris-board-status" aria-label="Current canvas status">
+      <span id="iris-status-pill">Canvas ready.</span>
+      <span id="iris-frame-count">0 frames</span>
+      <span id="iris-zoom-label">100%</span>
+    </div>
+    <div class="iris-board-tools" aria-label="Canvas controls">
+      <button type="button" data-action="zoom-out" aria-label="Zoom out">-</button>
+      <button type="button" data-action="zoom-reset" aria-label="Reset zoom">Reset</button>
+      <button type="button" data-action="zoom-in" aria-label="Zoom in">+</button>
+    </div>
+  </header>
+
+  <div class="iris-canvas-viewport" id="iris-canvas-viewport" aria-label="Iris idea canvas">
+    <div class="iris-canvas-grid" aria-hidden="true"></div>
+    <main class="iris-canvas-v2" id="iris-world"></main>
+  </div>
+</section>
+"""
 
 
 def stream_spiral(idea: str) -> Iterable[str]:
@@ -263,10 +386,6 @@ def render_spiral_html(view: SpiralView) -> str:
 
   <div class="iris-canvas-viewport">
     <main class="iris-canvas-v2" aria-label="Iris idea canvas">
-      <div class="iris-canvas-grid" aria-hidden="true"></div>
-      <div class="iris-depth-thread iris-depth-thread-primary" aria-hidden="true"></div>
-      <div class="iris-depth-thread iris-depth-thread-secondary" aria-hidden="true"></div>
-
       <section class="iris-frame iris-frame-primary" aria-label="Primary idea frame">
         <header class="iris-frame-header">
           <div>
@@ -285,23 +404,6 @@ def render_spiral_html(view: SpiralView) -> str:
           {render_connector("Next iteration")}
           {render_iteration_card(view)}
           {render_center_card(view)}
-        </div>
-      </section>
-
-      <section class="iris-frame iris-frame-secondary" aria-label="Secondary idea frame preview">
-        <header class="iris-frame-header">
-          <div>
-            <span>Separate frame</span>
-            <strong>Lecture notes stack</strong>
-          </div>
-          <div class="iris-frame-badges">
-            <span>Depth 01</span>
-          </div>
-        </header>
-        <div class="iris-mini-stack">
-          <div></div>
-          <div></div>
-          <div></div>
         </div>
       </section>
     </main>
@@ -324,7 +426,10 @@ def render_idea_card(view: SpiralView) -> str:
 
 
 def render_ai_cards(view: SpiralView) -> str:
-    cards = [render_ai_card(ring, selected=ring.depth == view.selected_depth) for ring in view.rings]
+    cards = [
+        render_ai_card(ring, selected=ring.depth == view.selected_depth)
+        for ring in view.rings
+    ]
     if view.pending_depth is not None:
         cards.append(render_pending_ai_card(view.pending_depth))
     if not cards:
@@ -340,7 +445,7 @@ def render_ai_cards(view: SpiralView) -> str:
 """
         )
 
-    return f'<div class="iris-ai-row" aria-label="AI pressure cards">{"".join(cards)}</div>'
+    return f'<div class="iris-ai-list" aria-label="AI pressure cards">{"".join(cards)}</div>'
 
 
 def render_ai_card(ring: RingView, *, selected: bool = False) -> str:
@@ -456,6 +561,657 @@ def safe_class_token(value: str) -> str:
     return token or "ready"
 
 
+APP_JS = r"""
+() => {
+  const RINGS = 4;
+  const RING_NAMES = {
+    1: "Reality Contact",
+    2: "Real Actor",
+    3: "Existing Alternative",
+    4: "Problem Truth",
+  };
+  const MIN_SCALE = 0.35;
+  const MAX_SCALE = 1.8;
+  const FRAME_WIDTH = 820;
+
+  const board = document.getElementById("iris-board");
+  const viewport = document.getElementById("iris-canvas-viewport");
+  const world = document.getElementById("iris-world");
+  const statusPill = document.getElementById("iris-status-pill");
+  const frameCount = document.getElementById("iris-frame-count");
+  const zoomLabel = document.getElementById("iris-zoom-label");
+
+  if (!board || !viewport || !world || board.dataset.irisReady === "true") {
+    return;
+  }
+  board.dataset.irisReady = "true";
+
+  const state = {
+    frames: [],
+    nextFrameNumber: 1,
+    nextEntryNumber: 1,
+    activeFrameId: null,
+    pan: { x: 120, y: 92 },
+    scale: 1,
+    pointer: null,
+    lastPointerCreateAt: 0,
+    lastDragAt: 0,
+    pendingFocusId: null,
+  };
+
+  function frameById(frameId) {
+    return state.frames.find((frame) => frame.id === frameId);
+  }
+
+  function entryById(frame, entryId) {
+    return frame.entries.find((entry) => entry.id === entryId);
+  }
+
+  function pressureEntries(frame) {
+    return frame.entries.filter((entry) => entry.type === "pressure");
+  }
+
+  function ideaEntries(frame) {
+    return frame.entries.filter((entry) => entry.type === "idea");
+  }
+
+  function nextDepth(frame) {
+    return pressureEntries(frame).length + 1;
+  }
+
+  function makeEntryId() {
+    const id = `entry-${state.nextEntryNumber}`;
+    state.nextEntryNumber += 1;
+    return id;
+  }
+
+  function createFrame(worldX, worldY) {
+    const number = state.nextFrameNumber;
+    state.nextFrameNumber += 1;
+    const entryId = makeEntryId();
+    const frame = {
+      id: `frame-${number}`,
+      number,
+      x: Math.round(worldX - 140),
+      y: Math.round(worldY - 48),
+      status: "editing",
+      complete: false,
+      entries: [
+        {
+          id: entryId,
+          type: "idea",
+          version: 1,
+          value: "",
+          locked: false,
+          error: "",
+        },
+      ],
+    };
+    state.frames.push(frame);
+    state.activeFrameId = frame.id;
+    state.pendingFocusId = entryId;
+    setStatus(`Frame ${number} ready.`);
+    render();
+  }
+
+  function setStatus(message) {
+    statusPill.textContent = message;
+  }
+
+  function zoomAt(clientX, clientY, nextScale) {
+    const rect = viewport.getBoundingClientRect();
+    const scale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
+    const worldX = (clientX - rect.left - state.pan.x) / state.scale;
+    const worldY = (clientY - rect.top - state.pan.y) / state.scale;
+    state.pan.x = clientX - rect.left - worldX * scale;
+    state.pan.y = clientY - rect.top - worldY * scale;
+    state.scale = scale;
+    renderTransform();
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function screenToWorld(clientX, clientY) {
+    const rect = viewport.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left - state.pan.x) / state.scale,
+      y: (clientY - rect.top - state.pan.y) / state.scale,
+    };
+  }
+
+  function renderTransform() {
+    world.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
+    viewport.style.setProperty("--iris-grid-x", `${state.pan.x}px`);
+    viewport.style.setProperty("--iris-grid-y", `${state.pan.y}px`);
+    viewport.style.setProperty("--iris-grid-size", `${24 * state.scale}px`);
+    zoomLabel.textContent = `${Math.round(state.scale * 100)}%`;
+  }
+
+  function render() {
+    world.innerHTML = state.frames.map(renderFrame).join("");
+    frameCount.textContent = `${state.frames.length} ${state.frames.length === 1 ? "frame" : "frames"}`;
+    renderTransform();
+    if (state.pendingFocusId) {
+      const focusId = state.pendingFocusId;
+      state.pendingFocusId = null;
+      window.requestAnimationFrame(() => {
+        const target = world.querySelector(`[data-entry-id="${focusId}"] textarea`);
+        if (target) {
+          target.focus();
+        }
+      });
+    }
+  }
+
+  function renderFrame(frame) {
+    const depth = pressureEntries(frame).length;
+    const status = frame.complete ? "Complete" : frame.status === "thinking" ? "Thinking" : "Ready";
+    const activeClass = frame.id === state.activeFrameId ? " is-active" : "";
+    return `
+      <section class="iris-frame${activeClass}" data-frame-id="${escapeAttr(frame.id)}" style="transform: translate(${frame.x}px, ${frame.y}px);">
+        <header class="iris-frame-header">
+          <div>
+            <span>Idea frame</span>
+            <strong>Frame ${frame.number}</strong>
+          </div>
+          <div class="iris-frame-badges">
+            <span>Depth ${String(depth).padStart(2, "0")}</span>
+            <span>${escapeHtml(status)}</span>
+          </div>
+        </header>
+        <div class="iris-stack">
+          ${renderStack(frame)}
+        </div>
+      </section>
+    `;
+  }
+
+  function renderStack(frame) {
+    const parts = [];
+    frame.entries.forEach((entry, index) => {
+      if (index > 0) {
+        parts.push(renderConnector(connectorLabel(entry)));
+      }
+      parts.push(renderEntry(frame, entry));
+    });
+    return parts.join("");
+  }
+
+  function connectorLabel(entry) {
+    if (entry.type === "idea") {
+      return "Next iteration";
+    }
+    if (entry.type === "center") {
+      return "Center";
+    }
+    return "AI pressure";
+  }
+
+  function renderEntry(frame, entry) {
+    if (entry.type === "idea") {
+      return renderIdeaEntry(frame, entry);
+    }
+    if (entry.type === "pressure") {
+      return renderPressureEntry(entry);
+    }
+    if (entry.type === "center") {
+      return renderCenterEntry(entry);
+    }
+    if (entry.type === "loading") {
+      return renderLoadingEntry(entry);
+    }
+    if (entry.type === "error") {
+      return renderErrorEntry(entry);
+    }
+    return "";
+  }
+
+  function renderIdeaEntry(frame, entry) {
+    const disabled = entry.locked || frame.status === "thinking" || frame.complete;
+    const error = entry.error ? `<p class="iris-entry-error">${escapeHtml(entry.error)}</p>` : "";
+    const buttonDisabled = disabled ? "disabled" : "";
+    const body = entry.locked
+      ? `<p>${escapeHtml(entry.value)}</p>`
+      : `<textarea data-frame-id="${escapeAttr(frame.id)}" data-entry-id="${escapeAttr(entry.id)}" rows="4" placeholder="Type the idea...">${escapeHtml(entry.value)}</textarea>`;
+    const action = entry.locked
+      ? ""
+      : `<button type="button" data-action="proceed" data-frame-id="${escapeAttr(frame.id)}" data-entry-id="${escapeAttr(entry.id)}" ${buttonDisabled}>Proceed</button>`;
+
+    return `
+      <article class="iris-card iris-card-idea${entry.locked ? " is-locked" : " is-editing"}" data-entry-id="${escapeAttr(entry.id)}">
+        <div class="iris-card-kicker">
+          <span>Idea v${entry.version}</span>
+          <span>User card</span>
+        </div>
+        ${body}
+        ${error}
+        <div class="iris-card-actions">${action}</div>
+      </article>
+    `;
+  }
+
+  function renderPressureEntry(entry) {
+    const alternative = entry.alternative
+      ? `<small class="iris-alternative">Alternative: ${escapeHtml(entry.alternative)}</small>`
+      : "";
+    return `
+      <article class="iris-card iris-card-ai" data-entry-id="${escapeAttr(entry.id)}">
+        <div class="iris-card-kicker">
+          <span>AI pressure</span>
+          <span>${escapeHtml(entry.ringLabel || RING_NAMES[entry.depth] || `Depth ${entry.depth}`)}</span>
+        </div>
+        <h3>${escapeHtml(entry.pressure)}</h3>
+        <p>${escapeHtml(entry.why_it_bites)}</p>
+        ${alternative}
+      </article>
+    `;
+  }
+
+  function renderCenterEntry(entry) {
+    return `
+      <article class="iris-card iris-card-center" data-entry-id="${escapeAttr(entry.id)}">
+        <div class="iris-card-kicker">
+          <span>Center</span>
+          <span>Next step</span>
+        </div>
+        <h3>${escapeHtml(entry.next_step)}</h3>
+        <dl>
+          <div><dt>Actor</dt><dd>${escapeHtml(entry.actor)}</dd></div>
+          <div><dt>Situation</dt><dd>${escapeHtml(entry.situation)}</dd></div>
+          <div><dt>Assumption</dt><dd>${escapeHtml(entry.assumption_to_test)}</dd></div>
+        </dl>
+      </article>
+    `;
+  }
+
+  function renderLoadingEntry(entry) {
+    const label = entry.depth <= RINGS ? RING_NAMES[entry.depth] : "Center";
+    return `
+      <article class="iris-card iris-card-ai is-pending" data-entry-id="${escapeAttr(entry.id)}">
+        <div class="iris-card-kicker">
+          <span>${entry.depth <= RINGS ? "AI pressure" : "Center"}</span>
+          <span>${escapeHtml(label)}</span>
+        </div>
+        <h3>${escapeHtml(label)} forming</h3>
+        <p>MiniCPM is applying pressure.</p>
+        <i aria-hidden="true"></i>
+      </article>
+    `;
+  }
+
+  function renderErrorEntry(entry) {
+    return `
+      <article class="iris-card iris-card-error" data-entry-id="${escapeAttr(entry.id)}">
+        <div class="iris-card-kicker">
+          <span>Engine</span>
+          <span>Retry needed</span>
+        </div>
+        <h3>Model call did not complete.</h3>
+        <p>${escapeHtml(entry.message)}</p>
+      </article>
+    `;
+  }
+
+  function renderConnector(label) {
+    return `
+      <div class="iris-connector" aria-hidden="true">
+        <span>${escapeHtml(label)}</span>
+      </div>
+    `;
+  }
+
+  function proceed(frameId, entryId) {
+    const frame = frameById(frameId);
+    if (!frame || frame.status === "thinking" || frame.complete) {
+      return;
+    }
+    const entry = entryById(frame, entryId);
+    if (!entry || entry.type !== "idea" || entry.locked) {
+      return;
+    }
+    const value = entry.value.trim();
+    if (!value) {
+      entry.error = "Enter a concrete idea before proceeding.";
+      state.pendingFocusId = entry.id;
+      render();
+      return;
+    }
+
+    const depth = nextDepth(frame);
+    entry.value = value;
+    entry.locked = true;
+    entry.error = "";
+    frame.status = "thinking";
+    const loadingId = makeEntryId();
+    frame.entries.push({
+      id: loadingId,
+      type: "loading",
+      depth,
+    });
+    state.activeFrameId = frame.id;
+    setStatus(`Frame ${frame.number}: MiniCPM thinking.`);
+    render();
+
+    callEngine(buildEnginePayload(frame, value, depth))
+      .then((response) => applyEngineResponse(frame.id, loadingId, response))
+      .catch((error) => applyEngineError(frame.id, loadingId, entry.id, error));
+  }
+
+  function buildEnginePayload(frame, idea, depth) {
+    return {
+      frame_id: frame.id,
+      idea,
+      depth,
+      iterations: ideaEntries(frame)
+        .filter((entry) => entry.value.trim())
+        .map((entry) => ({ version: entry.version, idea: entry.value.trim() })),
+      prior_cards: pressureEntries(frame).map((entry) => ({
+        depth: entry.depth,
+        ring_label: entry.ringLabel,
+        pressure: entry.pressure,
+        why_it_bites: entry.why_it_bites,
+        alternative: entry.alternative || "",
+      })),
+    };
+  }
+
+  async function callEngine(payload) {
+    const endpoint = `${window.location.origin}/gradio_api/call/iris_canvas_engine`;
+    const start = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: [JSON.stringify(payload)] }),
+    });
+    if (!start.ok) {
+      throw new Error(`Gradio API returned HTTP ${start.status}`);
+    }
+    const startJson = await start.json();
+    if (startJson.data) {
+      return parseEnginePayload(startJson.data[0]);
+    }
+    if (!startJson.event_id) {
+      throw new Error("Gradio API did not return an event id.");
+    }
+
+    const result = await fetch(`${endpoint}/${startJson.event_id}`);
+    if (!result.ok) {
+      throw new Error(`Gradio event returned HTTP ${result.status}`);
+    }
+    const eventText = await result.text();
+    return parseGradioEventText(eventText);
+  }
+
+  function parseGradioEventText(text) {
+    const blocks = text.split(/\n\n+/);
+    let lastData = null;
+    for (const block of blocks) {
+      const lines = block.split(/\n/);
+      let eventName = "message";
+      const dataLines = [];
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim();
+        }
+        if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+      if (!dataLines.length) {
+        continue;
+      }
+      const dataText = dataLines.join("\n");
+      if (eventName === "error") {
+        throw new Error(dataText || "Model call failed.");
+      }
+      try {
+        const parsed = JSON.parse(dataText);
+        if (Array.isArray(parsed)) {
+          lastData = parsed[0];
+        } else if (parsed && parsed.data) {
+          lastData = parsed.data[0];
+        }
+      } catch (_error) {
+        lastData = dataText;
+      }
+    }
+    if (lastData === null) {
+      throw new Error("Gradio API returned no model data.");
+    }
+    return parseEnginePayload(lastData);
+  }
+
+  function parseEnginePayload(payload) {
+    const parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
+    if (!parsed || parsed.ok !== true) {
+      throw new Error(parsed && parsed.message ? parsed.message : "Model call failed.");
+    }
+    return parsed;
+  }
+
+  function applyEngineResponse(frameId, loadingId, response) {
+    const frame = frameById(frameId);
+    if (!frame) {
+      return;
+    }
+    const loadingIndex = frame.entries.findIndex((entry) => entry.id === loadingId);
+    if (loadingIndex < 0) {
+      return;
+    }
+
+    if (response.kind === "pressure") {
+      frame.entries.splice(loadingIndex, 1, {
+        id: loadingId,
+        type: "pressure",
+        depth: response.depth,
+        ringLabel: response.ring_label,
+        pressure: response.pressure,
+        why_it_bites: response.why_it_bites,
+        alternative: response.alternative || "",
+      });
+      const nextIdeaId = makeEntryId();
+      frame.entries.push({
+        id: nextIdeaId,
+        type: "idea",
+        version: ideaEntries(frame).length + 1,
+        value: "",
+        locked: false,
+        error: "",
+      });
+      frame.status = "editing";
+      state.pendingFocusId = nextIdeaId;
+      setStatus(`Frame ${frame.number}: ${response.ring_label} returned.`);
+      render();
+      return;
+    }
+
+    if (response.kind === "center") {
+      frame.entries.splice(loadingIndex, 1, {
+        id: loadingId,
+        type: "center",
+        depth: response.depth,
+        actor: response.actor,
+        situation: response.situation,
+        assumption_to_test: response.assumption_to_test,
+        next_step: response.next_step,
+      });
+      frame.status = "complete";
+      frame.complete = true;
+      setStatus(`Frame ${frame.number}: center reached.`);
+      render();
+    }
+  }
+
+  function applyEngineError(frameId, loadingId, ideaEntryId, error) {
+    const frame = frameById(frameId);
+    if (!frame) {
+      return;
+    }
+    const loadingIndex = frame.entries.findIndex((entry) => entry.id === loadingId);
+    if (loadingIndex >= 0) {
+      frame.entries.splice(loadingIndex, 1, {
+        id: loadingId,
+        type: "error",
+        message: error && error.message ? error.message : String(error),
+      });
+    }
+    const ideaEntry = entryById(frame, ideaEntryId);
+    if (ideaEntry && ideaEntry.type === "idea") {
+      ideaEntry.locked = false;
+      ideaEntry.error = "Model call failed. Edit or retry this idea.";
+      state.pendingFocusId = ideaEntry.id;
+    }
+    frame.status = "error";
+    setStatus(`Frame ${frame.number}: model call failed.`);
+    render();
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, "&#96;");
+  }
+
+  viewport.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest(".iris-frame") || event.target.closest(".iris-board-tools")) {
+      return;
+    }
+    viewport.setPointerCapture(event.pointerId);
+    state.pointer = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      panX: state.pan.x,
+      panY: state.pan.y,
+      dragged: false,
+    };
+  });
+
+  viewport.addEventListener("pointermove", (event) => {
+    const pointer = state.pointer;
+    if (!pointer || pointer.id !== event.pointerId) {
+      return;
+    }
+    const dx = event.clientX - pointer.x;
+    const dy = event.clientY - pointer.y;
+    if (Math.hypot(dx, dy) > 4) {
+      pointer.dragged = true;
+    }
+    if (pointer.dragged) {
+      state.pan.x = pointer.panX + dx;
+      state.pan.y = pointer.panY + dy;
+      renderTransform();
+    }
+  });
+
+  viewport.addEventListener("pointerup", (event) => {
+    const pointer = state.pointer;
+    if (!pointer || pointer.id !== event.pointerId) {
+      return;
+    }
+    state.pointer = null;
+    if (pointer.dragged) {
+      state.lastDragAt = Date.now();
+      return;
+    }
+    if (!event.target.closest(".iris-frame")) {
+      const point = screenToWorld(event.clientX, event.clientY);
+      state.lastPointerCreateAt = Date.now();
+      createFrame(point.x, point.y);
+    }
+  });
+
+  viewport.addEventListener("click", (event) => {
+    if (event.target.closest(".iris-frame") || event.target.closest(".iris-board-tools")) {
+      return;
+    }
+    if (Date.now() - state.lastPointerCreateAt < 250) {
+      return;
+    }
+    if (Date.now() - state.lastDragAt < 250) {
+      return;
+    }
+    const point = screenToWorld(event.clientX, event.clientY);
+    createFrame(point.x, point.y);
+  });
+
+  viewport.addEventListener("wheel", (event) => {
+    if (event.target.closest(".iris-frame")) {
+      return;
+    }
+    event.preventDefault();
+    const direction = event.deltaY > 0 ? -1 : 1;
+    zoomAt(event.clientX, event.clientY, state.scale * (direction > 0 ? 1.08 : 0.92));
+  }, { passive: false });
+
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) {
+      return;
+    }
+    const action = button.dataset.action;
+    if (action === "proceed") {
+      event.preventDefault();
+      proceed(button.dataset.frameId, button.dataset.entryId);
+      return;
+    }
+    const rect = viewport.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    if (action === "zoom-in") {
+      zoomAt(centerX, centerY, state.scale * 1.14);
+    }
+    if (action === "zoom-out") {
+      zoomAt(centerX, centerY, state.scale * 0.86);
+    }
+    if (action === "zoom-reset") {
+      state.scale = 1;
+      state.pan = { x: 120, y: 92 };
+      renderTransform();
+    }
+  });
+
+  document.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement) || !target.dataset.frameId) {
+      return;
+    }
+    const frame = frameById(target.dataset.frameId);
+    if (!frame) {
+      return;
+    }
+    const entry = entryById(frame, target.dataset.entryId);
+    if (!entry || entry.type !== "idea") {
+      return;
+    }
+    entry.value = target.value;
+    entry.error = "";
+  });
+
+  document.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLTextAreaElement) || !target.dataset.frameId) {
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      proceed(target.dataset.frameId, target.dataset.entryId);
+    }
+  });
+
+  render();
+}
+"""
+
+
 APP_CSS = """
 :root {
   --iris-ink: #07090d;
@@ -474,6 +1230,7 @@ APP_CSS = """
   --iris-lime: #b7e37b;
   --iris-amber: #e9b949;
   --iris-rose: #dc7bd2;
+  --iris-danger: #ffb4ab;
   --iris-shadow: rgba(0, 0, 0, 0.36);
 }
 
@@ -514,7 +1271,10 @@ body,
   background: transparent !important;
 }
 
-footer {
+footer,
+#iris-engine-request,
+#iris-engine-response,
+#iris-engine-trigger {
   display: none !important;
 }
 
@@ -528,14 +1288,14 @@ footer {
 .iris-boardbar {
   position: relative;
   z-index: 10;
-  height: 64px;
-  display: flex;
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+  gap: 14px;
   padding: 0 24px;
   border-bottom: 1px solid rgba(154, 171, 188, 0.18);
-  background: rgba(8, 11, 15, 0.86);
+  background: rgba(8, 11, 15, 0.9);
   backdrop-filter: blur(16px);
 }
 
@@ -568,7 +1328,8 @@ footer {
   font-size: 12px;
 }
 
-.iris-board-status {
+.iris-board-status,
+.iris-board-tools {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -576,15 +1337,18 @@ footer {
   min-width: 0;
 }
 
-.iris-board-status span {
+.iris-board-status span,
+.iris-board-tools button {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   padding: 0 10px;
   border: 1px solid rgba(154, 171, 188, 0.18);
   border-radius: 8px;
   color: var(--iris-muted);
   background: rgba(18, 24, 31, 0.72);
+  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, ui-monospace, monospace;
   font-size: 11px;
   line-height: 1.2;
   white-space: nowrap;
@@ -595,28 +1359,48 @@ footer {
   border-color: rgba(102, 217, 215, 0.32);
 }
 
+.iris-board-tools button {
+  min-width: 32px;
+  cursor: pointer;
+}
+
+.iris-board-tools button:hover {
+  border-color: rgba(102, 217, 215, 0.46);
+  color: var(--iris-cyan);
+}
+
 .iris-canvas-viewport {
+  --iris-grid-size: 24px;
+  --iris-grid-x: 120px;
+  --iris-grid-y: 92px;
+  position: relative;
   height: calc(100vh - 64px);
-  overflow: auto;
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
   background:
     radial-gradient(circle at 20% 12%, rgba(102, 217, 215, 0.14), transparent 25%),
     radial-gradient(circle at 75% 70%, rgba(220, 123, 210, 0.12), transparent 28%),
     var(--iris-canvas);
 }
 
-.iris-canvas-v2 {
-  position: relative;
-  width: 1580px;
-  min-width: 100%;
-  height: 1080px;
-  overflow: hidden;
-  cursor: grab;
+.iris-canvas-viewport::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background-image:
     linear-gradient(rgba(154, 171, 188, 0.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(154, 171, 188, 0.045) 1px, transparent 1px),
     radial-gradient(circle, rgba(154, 171, 188, 0.22) 1px, transparent 1px);
-  background-size: 96px 96px, 96px 96px, 24px 24px;
-  background-position: -1px -1px, -1px -1px, 0 0;
+  background-size:
+    calc(var(--iris-grid-size) * 4) calc(var(--iris-grid-size) * 4),
+    calc(var(--iris-grid-size) * 4) calc(var(--iris-grid-size) * 4),
+    var(--iris-grid-size) var(--iris-grid-size);
+  background-position:
+    var(--iris-grid-x) var(--iris-grid-y),
+    var(--iris-grid-x) var(--iris-grid-y),
+    var(--iris-grid-x) var(--iris-grid-y);
+  pointer-events: none;
 }
 
 .iris-canvas-grid {
@@ -629,28 +1413,22 @@ footer {
   opacity: 0.75;
 }
 
-.iris-depth-thread {
+.iris-canvas-v2 {
   position: absolute;
-  width: 1px;
-  height: 720px;
-  background: linear-gradient(180deg, rgba(102, 217, 215, 0), rgba(102, 217, 215, 0.44), rgba(102, 217, 215, 0));
-  transform: rotate(18deg);
-  pointer-events: none;
-}
-
-.iris-depth-thread-primary {
-  top: 86px;
-  left: 492px;
-}
-
-.iris-depth-thread-secondary {
-  top: 276px;
-  left: 1180px;
-  opacity: 0.38;
+  inset: 0;
+  min-width: 100%;
+  min-height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .iris-frame {
   position: absolute;
+  top: 0;
+  left: 0;
+  width: 820px;
+  min-height: 220px;
+  padding: 22px;
   border: 1px solid var(--iris-frame-line);
   border-radius: 8px;
   background:
@@ -660,21 +1438,9 @@ footer {
   backdrop-filter: blur(12px);
 }
 
-.iris-frame-primary {
-  top: 96px;
-  left: 138px;
-  width: 820px;
-  min-height: 790px;
-  padding: 22px;
-}
-
-.iris-frame-secondary {
-  top: 274px;
-  left: 1052px;
-  width: 360px;
-  min-height: 300px;
-  padding: 18px;
-  opacity: 0.78;
+.iris-frame.is-active {
+  border-color: rgba(102, 217, 215, 0.46);
+  box-shadow: 0 0 0 1px rgba(102, 217, 215, 0.12), 0 24px 70px var(--iris-shadow);
 }
 
 .iris-frame-header {
@@ -724,6 +1490,7 @@ footer {
   border-radius: 8px;
   color: var(--iris-muted);
   background: rgba(7, 9, 13, 0.46);
+  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, ui-monospace, monospace;
   font-size: 10px;
   white-space: nowrap;
 }
@@ -737,6 +1504,7 @@ footer {
 
 .iris-card {
   width: 100%;
+  max-width: 642px;
   border-radius: 8px;
   border: 1px solid transparent;
   box-shadow: 0 18px 38px rgba(0, 0, 0, 0.22);
@@ -744,16 +1512,10 @@ footer {
 
 .iris-card-idea,
 .iris-card-iteration {
-  max-width: 642px;
   padding: 22px 24px;
   background: var(--iris-card-light);
   color: var(--iris-ink-text);
   border-color: rgba(255, 255, 255, 0.28);
-}
-
-.iris-card-iteration {
-  background: var(--iris-card-cream);
-  border-color: rgba(233, 185, 73, 0.5);
 }
 
 .iris-card-kicker {
@@ -784,7 +1546,9 @@ footer {
 .iris-card-ai .iris-card-kicker,
 .iris-card-ai .iris-card-kicker span,
 .iris-card-center .iris-card-kicker,
-.iris-card-center .iris-card-kicker span {
+.iris-card-center .iris-card-kicker span,
+.iris-card-error .iris-card-kicker,
+.iris-card-error .iris-card-kicker span {
   color: #c7d0d9 !important;
 }
 
@@ -808,6 +1572,60 @@ footer {
   font-size: 20px;
   font-weight: 600;
   line-height: 1.32;
+}
+
+.iris-card textarea {
+  width: 100%;
+  min-height: 116px;
+  resize: vertical;
+  border: 0;
+  border-radius: 6px;
+  outline: 1px solid rgba(23, 32, 42, 0.1);
+  background: rgba(255, 255, 255, 0.54);
+  color: var(--iris-ink-text);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 620;
+  line-height: 1.35;
+  padding: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.iris-card textarea:focus {
+  outline-color: rgba(102, 217, 215, 0.74);
+  box-shadow: 0 0 0 4px rgba(102, 217, 215, 0.14);
+}
+
+.iris-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.iris-card-actions button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid rgba(23, 32, 42, 0.2);
+  border-radius: 8px;
+  background: #17202a;
+  color: #f4f0e8;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.iris-card-actions button:hover {
+  background: #0f161e;
+}
+
+.iris-card-actions button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.iris-entry-error {
+  margin-top: 12px !important;
+  color: #8f1d18 !important;
+  font-size: 13px !important;
 }
 
 .iris-connector {
@@ -841,16 +1659,14 @@ footer {
   line-height: 1;
 }
 
-.iris-ai-row {
+.iris-ai-list {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  align-items: stretch;
+  place-items: center;
 }
 
 .iris-card-ai {
-  min-height: 226px;
+  min-height: 180px;
   padding: 18px;
   background:
     linear-gradient(180deg, rgba(102, 217, 215, 0.08), rgba(102, 217, 215, 0)),
@@ -859,14 +1675,14 @@ footer {
   color: var(--iris-text);
 }
 
-.iris-card-ai:nth-child(2) {
+.iris-card-ai:nth-of-type(3n + 2) {
   border-color: rgba(220, 123, 210, 0.34);
   background:
     linear-gradient(180deg, rgba(220, 123, 210, 0.08), rgba(220, 123, 210, 0)),
     var(--iris-card-dark);
 }
 
-.iris-card-ai:nth-child(3) {
+.iris-card-ai:nth-of-type(3n) {
   border-color: rgba(183, 227, 123, 0.34);
   background:
     linear-gradient(180deg, rgba(183, 227, 123, 0.08), rgba(183, 227, 123, 0)),
@@ -880,15 +1696,15 @@ footer {
 
 .iris-card-ai h3 {
   color: var(--iris-text);
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 680;
-  line-height: 1.28;
+  line-height: 1.32;
 }
 
 .iris-card-ai p {
   margin-top: 12px;
   color: var(--iris-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -903,7 +1719,6 @@ footer {
 }
 
 .iris-card-empty {
-  grid-column: 1 / -1;
   min-height: 132px;
   border-style: dashed;
 }
@@ -925,7 +1740,6 @@ footer {
 }
 
 .iris-card-center {
-  max-width: 642px;
   padding: 22px 24px;
   border-color: rgba(183, 227, 123, 0.45);
   background:
@@ -934,7 +1748,8 @@ footer {
   color: var(--iris-text);
 }
 
-.iris-card-center h3 {
+.iris-card-center h3,
+.iris-card-error h3 {
   color: var(--iris-text);
   font-size: 17px;
   font-weight: 650;
@@ -966,28 +1781,20 @@ footer {
   line-height: 1.4;
 }
 
-.iris-mini-stack {
-  display: grid;
-  gap: 12px;
+.iris-card-error {
+  padding: 18px;
+  border-color: rgba(255, 180, 171, 0.44);
+  background:
+    linear-gradient(180deg, rgba(255, 180, 171, 0.09), rgba(255, 180, 171, 0)),
+    #1d1216;
+  color: var(--iris-text);
 }
 
-.iris-mini-stack div {
-  height: 68px;
-  border: 1px solid rgba(154, 171, 188, 0.22);
-  border-radius: 8px;
-  background: rgba(244, 240, 232, 0.88);
-}
-
-.iris-mini-stack div:nth-child(2) {
-  margin-left: 24px;
-  background: rgba(17, 25, 35, 0.92);
-  border-color: rgba(102, 217, 215, 0.22);
-}
-
-.iris-mini-stack div:nth-child(3) {
-  margin-left: 48px;
-  background: rgba(255, 250, 240, 0.88);
-  border-color: rgba(233, 185, 73, 0.42);
+.iris-card-error p {
+  margin-top: 12px;
+  color: var(--iris-danger);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 @keyframes iris-pulse {
@@ -1004,14 +1811,14 @@ footer {
 
 @media (max-width: 760px) {
   .iris-boardbar {
-    height: auto;
-    min-height: 72px;
-    align-items: flex-start;
-    flex-direction: column;
+    min-height: 104px;
+    grid-template-columns: 1fr;
+    align-items: start;
     padding: 14px;
   }
 
-  .iris-board-status {
+  .iris-board-status,
+  .iris-board-tools {
     width: 100%;
     justify-content: flex-start;
     overflow-x: auto;
@@ -1019,23 +1826,7 @@ footer {
   }
 
   .iris-canvas-viewport {
-    height: calc(100vh - 98px);
-  }
-
-  .iris-canvas-v2 {
-    width: 1120px;
-    height: 1040px;
-  }
-
-  .iris-frame-primary {
-    top: 72px;
-    left: 42px;
-    width: 730px;
-  }
-
-  .iris-frame-secondary {
-    top: 156px;
-    left: 824px;
+    height: calc(100vh - 104px);
   }
 }
 """

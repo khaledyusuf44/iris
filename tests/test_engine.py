@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from iris.config import IrisConfig
@@ -13,7 +14,10 @@ from iris.ui import (
     RingView,
     SpatialSession,
     SpiralView,
+    pressure_cards_to_constraints,
+    render_interactive_canvas_html,
     render_spiral_html,
+    run_canvas_engine,
     session_to_view,
 )
 
@@ -466,6 +470,132 @@ class EngineTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertIn("no_advice_language", failures)
         self.assertIn("concrete_center", failures)
+
+    def test_ui_interactive_shell_has_empty_canvas_contract(self) -> None:
+        html = render_interactive_canvas_html()
+
+        self.assertIn("iris-canvas-viewport", html)
+        self.assertIn("iris-world", html)
+        self.assertIn("zoom-in", html)
+        self.assertNotIn("iris-frame-primary", html)
+        self.assertNotIn("marketplace", html.lower())
+        self.assertNotIn("lecture notes", html.lower())
+        self.assertNotIn("localStorage", html)
+        self.assertNotIn("sessionStorage", html)
+
+    def test_ui_engine_request_returns_pressure_payload(self) -> None:
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    '{"pressure": "What happens when a neighbor returns a borrowed tool broken?", "why_it_bites": "The trust failure appears before marketplace supply matters."}'
+                ]
+            )
+        )
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-1",
+                        "idea": "A marketplace for renting tools between neighbors.",
+                        "depth": 1,
+                        "prior_cards": [],
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "pressure")
+        self.assertEqual(payload["frame_id"], "frame-1")
+        self.assertEqual(payload["ring_label"], "Reality Contact")
+        self.assertIn("borrowed tool", payload["pressure"])
+
+    def test_ui_engine_request_formats_prior_pressure_constraints(self) -> None:
+        prior_cards = [
+            {
+                "pressure": "What happens when a neighbor returns a borrowed tool broken?",
+                "why_it_bites": "The trust failure appears before marketplace supply matters.",
+            }
+        ]
+        constraints = pressure_cards_to_constraints(prior_cards)
+        self.assertEqual(
+            constraints,
+            [
+                "What happens when a neighbor returns a borrowed tool broken? Why it bites: The trust failure appears before marketplace supply matters."
+            ],
+        )
+
+        client = FakeClient(
+            [
+                '{"pressure": "Who decides whether a neighbor power drill is safe enough to lend?", "why_it_bites": "The neighbor owner may carry the real risk while the renter gets the visible benefit."}'
+            ]
+        )
+        engine = IrisEngine(client)
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-1",
+                        "idea": "A neighbor tool rental focused on one Saturday pickup.",
+                        "depth": 2,
+                        "prior_cards": prior_cards,
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["ring_label"], "Real Actor")
+        self.assertIn("Who decides", payload["pressure"])
+        self.assertIn("borrowed tool broken", client.messages[0][1]["content"])
+
+    def test_ui_engine_request_returns_center_payload_after_four_rings(self) -> None:
+        prior_cards = [
+            {
+                "pressure": "What happens when lecture notes include half-finished diagrams?",
+                "why_it_bites": "Students may memorize broken material before the exam.",
+            },
+            {
+                "pressure": "Who decides whether lecture notes are accurate enough for exam prep?",
+                "why_it_bites": "The student may not know which parts are safe to trust.",
+            },
+            {
+                "pressure": "What do people use today when lecture notes are too messy for flashcards: paper annotations?",
+                "why_it_bites": "Paper annotations may already cover the messy review moment.",
+                "alternative": "paper annotations",
+            },
+            {
+                "pressure": "What if the real problem is not flashcards, but not knowing which lecture notes matter?",
+                "why_it_bites": "The study failure may happen before cards are useful.",
+            },
+        ]
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    '{"actor": "student", "situation": "the last time lecture notes felt too messy to study", "assumption_to_test": "flashcards help only when lecture notes already mark what matters"}'
+                ]
+            )
+        )
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-2",
+                        "idea": "A study tool that turns lecture notes into flashcards.",
+                        "depth": 5,
+                        "prior_cards": prior_cards,
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "center")
+        self.assertEqual(payload["ring_label"], "Center")
+        self.assertIn("Ask one student", payload["next_step"])
 
     def test_ui_render_includes_canvas_frame_and_center_card(self) -> None:
         html = render_spiral_html(

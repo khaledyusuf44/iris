@@ -6,9 +6,9 @@ Iris has a validated constraint engine and is shaping the Gradio product
 experience around it. The current codebase is a small Python package that calls
 an OpenAI-compatible MiniCPM endpoint, prints full idea spirals from a CLI
 harness, scores seed runs with an automated gate, and serves a Gradio interface
-through `app.py`. The current UI checkpoint is Iris UI v2 Stage 1: a static
-FigJam-style canvas with a framed idea stack, user idea cards, model pressure
-cards, and a next-iteration card.
+through `app.py`. The current UI checkpoint is Iris UI v2 live interactivity: a
+FigJam-style canvas with live frame creation, user idea cards, model pressure
+cards, iteration stacking, multiple frames, and pan/zoom.
 
 ## Initial Structure
 
@@ -54,19 +54,15 @@ idea + prior constraints + ring depth
 app.py
   -> iris.ui.create_app()
   -> Gradio Blocks wrapper
-  -> static Iris UI v2 canvas/card checkpoint
-  -> idea frame renders the submitted idea card
-  -> AI cards render model pressure + why_it_bites
-  -> next idea card keeps the downward iteration stack visible
-
-Planned Stage 2 wiring:
-
-canvas click
-  -> create an idea frame
-  -> Proceed calls IrisEngine.pressure() for the current depth
-  -> returned MiniCPM pressure renders as an AI card
-  -> next user idea card continues the same stack
-  -> final center action renders as the bottom card
+  -> embedded HTML/CSS/JS canvas shell
+  -> in-memory JS state tracks frames, card stacks, pan, and zoom
+  -> canvas click creates an independent idea frame
+  -> user idea card Proceed calls the named Gradio API endpoint
+  -> iris.ui.run_canvas_engine()
+  -> IrisEngine.pressure() for depths 1-4
+  -> IrisEngine.distill() at center depth
+  -> response JSON returns one model pressure card or center card
+  -> JS renders the returned card and adds the next editable idea card
 ```
 
 ## Configuration
