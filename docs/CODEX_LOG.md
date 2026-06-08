@@ -407,3 +407,26 @@ Validation:
   pressure cards, a short second iteration returned 4 more, the frame reached
   Depth 02, and no model error card appeared.
 - Iris quality gate: not rerun for this UI iteration-context checkpoint.
+
+### 05da4e9 - Keep canvas moving after grounding retries
+
+Date: 2026-06-08
+
+- Fixed a second-iteration UI failure where the current-iteration grounding
+  guard over-weighted weak words such as `allows`, `amazing`, and `approach`.
+- Let the canvas soft-accept a final model-authored card when current-iteration
+  grounding is the only remaining retry failure, while preserving hard failures
+  for malformed JSON, advice language, and wrong direction shape.
+- Added a regression test for the cheap-compute / vetted-data second-iteration
+  case and documented the live local smoke in
+  `docs/validation/day2-v2-current-iteration-soft-pass.md`.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Live local `run_canvas_engine()` smoke against MiniCPM4.1 passed for the
+  reported second-iteration wording: `ok: true`, 4 pressure cards, Depth 02.
+- Iris quality gate: not rerun for this UI bugfix.
