@@ -483,11 +483,84 @@ class EngineTests(unittest.TestCase):
         self.assertNotIn("localStorage", html)
         self.assertNotIn("sessionStorage", html)
 
-    def test_ui_engine_request_returns_pressure_payload(self) -> None:
+    def test_engine_returns_four_direction_pressures(self) -> None:
         engine = IrisEngine(
             FakeClient(
                 [
-                    '{"pressure": "What happens when a neighbor returns a borrowed tool broken?", "why_it_bites": "The trust failure appears before marketplace supply matters."}'
+                    '{"pressure": "What hard rule stops neighbors from lending a power saw on weekends?", "why_it_bites": "A safety or liability boundary can block the rental before trust matters."}',
+                    '{"pressure": "Where does weekend tool rental break when the neighbor needs a rare saw size?", "why_it_bites": "The idea may only work for common tools and fail at the urgent edge."}',
+                    '{"pressure": "What capability must exist to verify a neighbor power saw is available and safe?", "why_it_bites": "Without that capability, the marketplace cannot distinguish useful supply from risky supply."}',
+                    '{"pressure": "What happens when a neighbor arrives Saturday morning and the borrowed saw is missing a blade?", "why_it_bites": "The real-world handoff can fail at the exact moment the rental is supposed to help."}',
+                ]
+            )
+        )
+        results = engine.pressure_directions(
+            "A marketplace for renting tools between neighbors.", [], 1, 4
+        )
+
+        self.assertEqual(
+            [result.direction for result in results],
+            ["Constraints", "Limitations", "Capabilities", "Reality Contact"],
+        )
+        self.assertIn("power saw", results[0].pressure)
+
+    def test_engine_repairs_direction_pressure_missing_bite(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": "What hard rule stops neighbors from lending a power saw on weekends?"}',
+                '{"why_it_bites": "A safety or liability boundary can block the rental before trust matters."}',
+                '{"pressure": "Where does weekend tool rental break when the neighbor needs a rare saw size?", "why_it_bites": "The idea may only work for common tools and fail at the urgent edge."}',
+                '{"pressure": "What capability must exist to verify a neighbor power saw is available and safe?", "why_it_bites": "Without that capability, the marketplace cannot distinguish useful supply from risky supply."}',
+                '{"pressure": "What happens when a neighbor arrives Saturday morning and the borrowed saw is missing a blade?", "why_it_bites": "The real-world handoff can fail at the exact moment the rental is supposed to help."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        results = engine.pressure_directions(
+            "A marketplace for renting tools between neighbors.", [], 1, 4
+        )
+
+        self.assertEqual(
+            results[0].why_it_bites,
+            "A safety or liability boundary can block the rental before trust matters.",
+        )
+        self.assertEqual(len(client.messages), 5)
+
+    def test_engine_repairs_nested_direction_pressure_missing_question(self) -> None:
+        client = FakeClient(
+            [
+                '{"pressure": {"why_it_bites": "A safety or liability boundary can block the rental before trust matters."}}',
+                '{"pressure": "What hard safety rule blocks a neighbor from borrowing a power saw without training?"}',
+                '{"pressure": "Where does weekend tool rental break when the neighbor needs a rare saw size?", "why_it_bites": "The idea may only work for common tools and fail at the urgent edge."}',
+                '{"pressure": "What capability verifies a neighbor power saw is available and safe?", "why_it_bites": "Without verification, the marketplace cannot distinguish useful supply from risky supply."}',
+                '{"pressure": "What happens when a neighbor arrives Saturday morning and the borrowed saw is missing a blade?", "why_it_bites": "The real-world handoff can fail at the exact moment the rental is supposed to help."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        results = engine.pressure_directions(
+            "A marketplace for renting tools between neighbors.", [], 1, 4
+        )
+
+        self.assertEqual(
+            results[0].pressure,
+            "What hard safety rule blocks a neighbor from borrowing a power saw without training?",
+        )
+        self.assertEqual(
+            results[0].why_it_bites,
+            "A safety or liability boundary can block the rental before trust matters.",
+        )
+        self.assertIn("Existing why_it_bites", client.messages[1][1]["content"])
+        self.assertEqual(len(client.messages), 5)
+
+    def test_ui_engine_request_returns_four_pressure_payload(self) -> None:
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    '{"pressure": "What hard rule stops neighbors from lending a power saw on weekends?", "why_it_bites": "A safety or liability boundary can block the rental before trust matters."}',
+                    '{"pressure": "Where does weekend tool rental break when the neighbor needs a rare saw size?", "why_it_bites": "The idea may only work for common tools and fail at the urgent edge."}',
+                    '{"pressure": "What capability must exist to verify a neighbor power saw is available and safe?", "why_it_bites": "Without that capability, the marketplace cannot distinguish useful supply from risky supply."}',
+                    '{"pressure": "What happens when a neighbor arrives Saturday morning and the borrowed saw is missing a blade?", "why_it_bites": "The real-world handoff can fail at the exact moment the rental is supposed to help."}',
                 ]
             )
         )
@@ -506,10 +579,14 @@ class EngineTests(unittest.TestCase):
         )
 
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["kind"], "pressure")
+        self.assertEqual(payload["kind"], "pressures")
         self.assertEqual(payload["frame_id"], "frame-1")
-        self.assertEqual(payload["ring_label"], "Reality Contact")
-        self.assertIn("borrowed tool", payload["pressure"])
+        self.assertEqual(len(payload["cards"]), 4)
+        self.assertEqual(
+            [card["direction"] for card in payload["cards"]],
+            ["Constraints", "Limitations", "Capabilities", "Reality Contact"],
+        )
+        self.assertIn("power saw", payload["cards"][0]["pressure"])
 
     def test_ui_engine_request_formats_prior_pressure_constraints(self) -> None:
         prior_cards = [
@@ -518,17 +595,21 @@ class EngineTests(unittest.TestCase):
                 "why_it_bites": "The trust failure appears before marketplace supply matters.",
             }
         ]
+        prior_cards[0]["direction"] = "Constraints"
         constraints = pressure_cards_to_constraints(prior_cards)
         self.assertEqual(
             constraints,
             [
-                "What happens when a neighbor returns a borrowed tool broken? Why it bites: The trust failure appears before marketplace supply matters."
+                "Constraints: What happens when a neighbor returns a borrowed tool broken? Why it bites: The trust failure appears before marketplace supply matters."
             ],
         )
 
         client = FakeClient(
             [
-                '{"pressure": "Who decides whether a neighbor power drill is safe enough to lend?", "why_it_bites": "The neighbor owner may carry the real risk while the renter gets the visible benefit."}'
+                '{"pressure": "What hard constraint stops the neighbor drill from being lent on Saturday?", "why_it_bites": "A single hard boundary can block the pickup before the idea creates value."}',
+                '{"pressure": "Where does the neighbor drill rental fail when the first borrower needs special bits?", "why_it_bites": "The rental may only cover the easy case and fail at the real job."}',
+                '{"pressure": "What capability verifies the neighbor drill, bits, and pickup time before Saturday?", "why_it_bites": "Without verification, the stack may show supply that cannot actually satisfy the job."}',
+                '{"pressure": "What happens when the neighbor arrives Saturday and the drill battery is dead?", "why_it_bites": "The handoff fails at the moment when the idea needs to feel reliable."}',
             ]
         )
         engine = IrisEngine(client)
@@ -547,8 +628,8 @@ class EngineTests(unittest.TestCase):
         )
 
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["ring_label"], "Real Actor")
-        self.assertIn("Who decides", payload["pressure"])
+        self.assertEqual(payload["kind"], "pressures")
+        self.assertEqual(len(payload["cards"]), 4)
         self.assertIn("borrowed tool broken", client.messages[0][1]["content"])
 
     def test_ui_engine_request_returns_center_payload_after_four_rings(self) -> None:

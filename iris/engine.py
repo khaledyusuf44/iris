@@ -13,15 +13,24 @@ from iris.http_client import ChatCompletionsClient
 from iris.parser import parse_json_object, require_string
 from iris.prompts import (
     DISTILL_SYSTEM,
+    DIRECTION_PROFILES,
+    DIRECTION_STYLES,
+    PRESSURE_REPAIR_SYSTEM,
     PRESSURE_SYSTEM,
     RING_PROFILES,
+    DIRECTION_PRESSURE_SYSTEM,
+    WHY_BITE_SYSTEM,
+    direction_pressure_user_prompt,
     distill_user_prompt,
+    pressure_repair_user_prompt,
     pressure_user_prompt,
+    why_bite_user_prompt,
 )
 
 
 MAX_MODEL_ATTEMPTS = 4
 PRESSURE_REPEAT_THRESHOLD = 0.68
+DIRECTION_NAMES = tuple(DIRECTION_PROFILES.keys())
 
 WEAK_ALTERNATIVE_FILLS = (
     "none",
@@ -55,6 +64,13 @@ BANNED_PRESSURE_PHRASES = (
     "adoption strategies",
     "why does the app fail",
     "why does the tool fail",
+    "solution",
+    "solutions",
+    "feature",
+    "features",
+    "strategy",
+    "strategies",
+    "practical or safe",
 )
 
 WHY_ADVICE_PHRASES = (
@@ -134,6 +150,20 @@ class PressureResult:
 
 
 @dataclass(frozen=True)
+class DirectionPressureResult:
+    direction: str
+    pressure: str
+    why_it_bites: str
+    raw: str
+
+    def as_constraint(self) -> str:
+        return (
+            f"{self.direction}: {self.pressure} "
+            f"Why it bites: {self.why_it_bites}"
+        )
+
+
+@dataclass(frozen=True)
 class DistillResult:
     actor: str
     situation: str
@@ -189,6 +219,28 @@ class IrisEngine:
         if last_error is not None:
             raise last_error
         raise IrisResponseError("Model did not return pressure output")
+
+    def pressure_directions(
+        self, idea: str, prior_constraints: list[str], depth: int, total: int
+    ) -> list[DirectionPressureResult]:
+        if depth < 1 or total < 1 or depth > total:
+            raise ValueError("depth must be between 1 and total")
+
+        results: list[DirectionPressureResult] = []
+        for direction in DIRECTION_NAMES:
+            direction_constraints = prior_constraints + [
+                result.as_constraint() for result in results
+            ]
+            results.append(
+                self._pressure_direction(
+                    idea=idea,
+                    prior_constraints=direction_constraints,
+                    depth=depth,
+                    total=total,
+                    direction=direction,
+                )
+            )
+        return results
 
     def _pressure_once(
         self,
@@ -264,6 +316,161 @@ class IrisEngine:
                 raw=raw,
                 alternative=alternative_text,
             )
+        except IrisResponseError as exc:
+            raise IrisResponseError(f"{exc}; raw response: {raw[:500]}") from exc
+
+    def _pressure_direction(
+        self,
+        idea: str,
+        prior_constraints: list[str],
+        depth: int,
+        total: int,
+        direction: str,
+    ) -> DirectionPressureResult:
+        feedback: str | None = None
+        last_result: DirectionPressureResult | None = None
+        last_error: IrisResponseError | None = None
+
+        for _attempt in range(MAX_MODEL_ATTEMPTS):
+            try:
+                result = self._pressure_direction_once(
+                    idea=idea,
+                    prior_constraints=prior_constraints,
+                    depth=depth,
+                    total=total,
+                    direction=direction,
+                    rejection_feedback=feedback,
+                )
+            except IrisResponseError as exc:
+                last_error = exc
+                feedback = str(exc)
+                continue
+
+            quality_feedback = _single_direction_pressure_quality_feedback(
+                result, prior_constraints, idea
+            )
+            if quality_feedback is None:
+                return result
+
+            last_result = result
+            feedback = quality_feedback
+
+        if last_result is not None and feedback is not None:
+            raise IrisResponseError(
+                f"{direction} direction failed quality gate: {feedback}"
+            )
+        if last_result is not None:
+            return last_result
+        if last_error is not None:
+            raise last_error
+        raise IrisResponseError(
+            f"Model did not return {direction} direction pressure output"
+        )
+
+    def _pressure_direction_once(
+        self,
+        idea: str,
+        prior_constraints: list[str],
+        depth: int,
+        total: int,
+        direction: str,
+        rejection_feedback: str | None,
+    ) -> DirectionPressureResult:
+        raw = self.client.complete(
+            [
+                {"role": "system", "content": DIRECTION_PRESSURE_SYSTEM},
+                {
+                    "role": "user",
+                    "content": direction_pressure_user_prompt(
+                        idea=idea,
+                        prior_constraints=prior_constraints,
+                        depth=depth,
+                        total=total,
+                        direction=direction,
+                        enable_thinking=self.config.enable_thinking,
+                        rejection_feedback=rejection_feedback,
+                    ),
+                },
+            ]
+        )
+        data = parse_json_object(raw)
+        try:
+            pressure_text, why_text = _extract_direction_pressure_fields(data)
+            if pressure_text is None:
+                pressure_text = self._repair_direction_pressure_question(
+                    idea=idea,
+                    prior_constraints=prior_constraints,
+                    direction=direction,
+                    why_it_bites=why_text,
+                )
+            if why_text is None:
+                why_text = self._repair_direction_why_bite(
+                    idea=idea,
+                    direction=direction,
+                    pressure=pressure_text,
+                )
+            return DirectionPressureResult(
+                direction=direction,
+                pressure=pressure_text,
+                why_it_bites=why_text,
+                raw=raw,
+            )
+        except IrisResponseError as exc:
+            raise IrisResponseError(f"{exc}; raw response: {raw[:500]}") from exc
+
+    def _repair_direction_pressure_question(
+        self,
+        idea: str,
+        prior_constraints: list[str],
+        direction: str,
+        why_it_bites: str | None,
+    ) -> str:
+        raw = self.client.complete(
+            [
+                {"role": "system", "content": PRESSURE_REPAIR_SYSTEM},
+                {
+                    "role": "user",
+                    "content": pressure_repair_user_prompt(
+                        idea=idea,
+                        prior_constraints=prior_constraints,
+                        direction=direction,
+                        why_it_bites=why_it_bites,
+                        enable_thinking=self.config.enable_thinking,
+                    ),
+                },
+            ]
+        )
+        data = parse_json_object(raw)
+        try:
+            return require_string(
+                data, "pressure", aliases=("constraint", "question")
+            )
+        except IrisResponseError as exc:
+            raise IrisResponseError(f"{exc}; raw response: {raw[:500]}") from exc
+
+    def _repair_direction_why_bite(
+        self,
+        idea: str,
+        direction: str,
+        pressure: str,
+    ) -> str:
+        raw = self.client.complete(
+            [
+                {"role": "system", "content": WHY_BITE_SYSTEM},
+                {
+                    "role": "user",
+                    "content": why_bite_user_prompt(
+                        idea=idea,
+                        direction=direction,
+                        pressure=pressure,
+                        enable_thinking=self.config.enable_thinking,
+                    ),
+                },
+            ]
+        )
+        data = parse_json_object(raw)
+        try:
+            return _require_why_it_bites(data)
         except IrisResponseError as exc:
             raise IrisResponseError(f"{exc}; raw response: {raw[:500]}") from exc
 
@@ -358,6 +565,12 @@ def pressure(
     idea: str, prior_constraints: list[str], depth: int, total: int
 ) -> PressureResult:
     return IrisEngine().pressure(idea, prior_constraints, depth, total)
+
+
+def pressure_directions(
+    idea: str, prior_constraints: list[str], depth: int, total: int
+) -> list[DirectionPressureResult]:
+    return IrisEngine().pressure_directions(idea, prior_constraints, depth, total)
 
 
 def distill(idea: str, all_constraints: list[str]) -> DistillResult:
@@ -510,6 +723,77 @@ def _alternative_quality_feedback(
     return None
 
 
+def _single_direction_pressure_quality_feedback(
+    result: DirectionPressureResult, prior_constraints: list[str], idea: str
+) -> str | None:
+    pressure = result.pressure.strip()
+    normalized = _normalize(pressure)
+    idea_keywords = _keywords(idea)
+
+    if "?" not in pressure or not pressure.rstrip().endswith("?"):
+        return (
+            f"{result.direction} pressure must be one hard question ending with "
+            "a question mark."
+        )
+
+    direction_opening_feedback = _direction_opening_feedback(
+        result.direction, normalized
+    )
+    if direction_opening_feedback is not None:
+        return direction_opening_feedback
+
+    if idea_keywords and not _has_keyword_match(normalized, idea_keywords):
+        return (
+            f"{result.direction} pressure is not grounded in the idea. Use at "
+            "least one concrete word from the idea: "
+            f"{', '.join(sorted(idea_keywords)[:6])}."
+        )
+
+    for phrase in BANNED_PRESSURE_PHRASES:
+        if phrase in normalized:
+            return (
+                f'{result.direction} pressure used banned generic or solution '
+                f'phrase: "{phrase}".'
+            )
+
+    if any(word in normalized for word in ("implement ", "design ", "build ", "add ")):
+        return (
+            f"{result.direction} pressure proposed implementation instead of "
+            "applying pressure."
+        )
+
+    why_advice = advice_language_phrase(result.why_it_bites)
+    if why_advice is not None:
+        return (
+            f'{result.direction} why_it_bites used recommendation language: '
+            f'"{why_advice}". Return a risk-only bite that explains the stakes '
+            "without saying what to build, add, change, or recommend."
+        )
+
+    for prior in prior_constraints:
+        prior_pressure = _constraint_pressure_text(prior)
+        if (
+            SequenceMatcher(None, normalized, _normalize(prior_pressure)).ratio()
+            >= PRESSURE_REPEAT_THRESHOLD
+        ):
+            return (
+                f"{result.direction} pressure repeats a prior pressure instead "
+                "of opening a new direction."
+            )
+
+    return None
+
+
+def _direction_opening_feedback(direction: str, normalized_pressure: str) -> str | None:
+    opening = DIRECTION_STYLES[direction]["opening"].lower()
+    if normalized_pressure.startswith(opening):
+        return None
+    return (
+        f'{direction} pressure must start with "{DIRECTION_STYLES[direction]["opening"]}" '
+        "so each card stays in its assigned direction."
+    )
+
+
 def _distill_quality_feedback(result: DistillResult, idea: str) -> str | None:
     fields = {
         "actor": result.actor,
@@ -659,6 +943,86 @@ def _optional_string(
         return require_string(data, key, aliases=aliases)
     except IrisResponseError:
         return None
+
+
+def _require_why_it_bites(data: dict[str, object]) -> str:
+    return require_string(
+        data,
+        "why_it_bites",
+        aliases=(
+            "why it bites",
+            "why_it_bits",
+            "why this bites",
+            "why it matters",
+            "why",
+            "reason",
+            "rationale",
+            "stakes",
+            "risk",
+            "bite",
+        ),
+    )
+
+
+def _extract_direction_pressure_fields(
+    data: dict[str, object],
+) -> tuple[str | None, str | None]:
+    pressure_value = _field_value(
+        data, "pressure", aliases=("constraint", "question")
+    )
+    pressure_text = _pressure_text_from_value(pressure_value)
+    why_text = _optional_why_it_bites(data)
+
+    if isinstance(pressure_value, dict):
+        why_text = why_text or _optional_why_it_bites(pressure_value)
+
+    if pressure_text:
+        try:
+            split_pressure, inline_why = _split_inline_why(pressure_text)
+        except IrisResponseError:
+            pass
+        else:
+            pressure_text = split_pressure
+            why_text = why_text or inline_why
+
+    return pressure_text, why_text
+
+
+def _pressure_text_from_value(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, dict):
+        try:
+            return require_string(
+                value, "pressure", aliases=("constraint", "question")
+            )
+        except IrisResponseError:
+            return None
+    return None
+
+
+def _optional_why_it_bites(data: dict[str, object]) -> str | None:
+    try:
+        return _require_why_it_bites(data)
+    except IrisResponseError:
+        return None
+
+
+def _field_value(
+    data: dict[str, object], key: str, aliases: tuple[str, ...] = ()
+) -> object | None:
+    if key in data:
+        return data[key]
+
+    normalized = {
+        re.sub(r"[^a-z0-9]", "", str(item_key).lower()): value
+        for item_key, value in data.items()
+    }
+    for candidate in (key, *aliases):
+        value = normalized.get(re.sub(r"[^a-z0-9]", "", candidate.lower()))
+        if value is not None:
+            return value
+    return None
 
 
 def _alternative_copied_prior_failure(

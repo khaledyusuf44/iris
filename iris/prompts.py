@@ -41,6 +41,54 @@ Hard rules:
 The JSON object must have exactly these three string keys:
 {"actor": "...", "situation": "...", "assumption_to_test": "..."}"""
 
+DIRECTION_PRESSURE_SYSTEM = """You are Iris, a thinking instrument. You do NOT give answers, solutions, product ideas, or plans.
+Your only job is to apply PRESSURE that makes the human think deeper.
+
+Return exactly ONE idea-specific pressure as a QUESTION for the requested
+direction. The question must expose a real limitation, hard trade-off, fragile
+assumption, ignored actor, or reality-contact failure point. Never tell the
+human what to build.
+
+Hard rules:
+- The pressure must be one sharp question ending with "?".
+- Name concrete nouns from THIS idea, not generic business language.
+- Do not use phrases like "user adoption", "market fit", "user-friendly",
+  "seamless experience", "existing workarounds", or "the app needs".
+- Do not repeat any prior pressure or reuse its frame.
+- why_it_bites explains only the risk or stakes. It never recommends features,
+  fixes, strategies, or what the builder should do next.
+- Return valid JSON only. No markdown. No reasoning. No prose outside the JSON.
+
+The JSON object must have exactly these two string keys:
+{"pressure": "...", "why_it_bites": "..."}"""
+
+WHY_BITE_SYSTEM = """You are Iris, a thinking instrument. You do NOT give answers, solutions, product ideas, or plans.
+Your job is to write the missing why_it_bites field for one pressure question.
+
+Hard rules:
+- Explain only the risk or stakes exposed by the pressure.
+- Do not recommend features, fixes, strategies, or what the builder should do
+  next.
+- Do not use recommendation words like "should", "need to", "incorporate",
+  "features", "solution", or "guidance".
+- Return valid JSON only. No markdown. No reasoning. No prose outside the JSON.
+
+The JSON object must have exactly this string key:
+{"why_it_bites": "..."}"""
+
+PRESSURE_REPAIR_SYSTEM = """You are Iris, a thinking instrument. You do NOT give answers, solutions, product ideas, or plans.
+Your job is to write the missing pressure question for one direction.
+
+Hard rules:
+- The pressure must be one sharp question ending with "?".
+- Name concrete nouns from THIS idea, not generic business language.
+- Do not recommend features, fixes, strategies, or what the builder should do
+  next.
+- Return valid JSON only. No markdown. No reasoning. No prose outside the JSON.
+
+The JSON object must have exactly this string key:
+{"pressure": "..."}"""
+
 RING_PROFILES = {
     1: {
         "name": "Reality Contact",
@@ -66,6 +114,60 @@ RING_PROFILES = {
         "lens": "problem truth: what if the stated problem is only a symptom of something else?",
         "contract": "Attack problem validity: maybe the named problem is refusal, trust, timing, social risk, or context instead.",
         "required_opening": "What if the real problem is not",
+    },
+}
+
+DIRECTION_PROFILES = {
+    "Constraints": (
+        "hard constraints: rules, trust, time, money, access, safety, logistics, "
+        "or social boundaries the idea collides with"
+    ),
+    "Limitations": (
+        "breakdown limits: where the idea cannot work, cannot cover the real "
+        "case, or fails outside the easiest scenario"
+    ),
+    "Capabilities": (
+        "needed/available capability: what data, coordination, behavior, access, "
+        "skill, supply, or operational ability must actually exist"
+    ),
+    "Reality Contact": (
+        "first contact: what happens when the idea touches real people, places, "
+        "habits, devices, or routines"
+    ),
+}
+
+DIRECTION_STYLES = {
+    "Constraints": {
+        "opening": "What hard",
+        "shape": (
+            "Ask about one hard boundary: rule, permission, trust, safety, time, "
+            "money, access, logistics, or social constraint."
+        ),
+        "avoid": "Do not ask whether the idea is practical or safe overall.",
+    },
+    "Limitations": {
+        "opening": "Where does",
+        "shape": (
+            "Ask where the idea breaks outside the easiest case, edge condition, "
+            "or ideal user behavior."
+        ),
+        "avoid": "Do not repeat a hard rule, liability, or first-contact scene.",
+    },
+    "Capabilities": {
+        "opening": "What capability",
+        "shape": (
+            "Ask what data, access, supply, coordination, verification, skill, "
+            "or operational ability must actually exist."
+        ),
+        "avoid": "Do not recommend adding a feature or improving the product.",
+    },
+    "Reality Contact": {
+        "opening": "What happens when",
+        "shape": (
+            "Ask about the first messy real-world moment with a person, place, "
+            "habit, device, handoff, or routine."
+        ),
+        "avoid": "Do not repeat liability, broad safety, or capability wording.",
     },
 }
 
@@ -160,6 +262,112 @@ Do not recommend features, solutions, or product changes.
 
 Return the center point as valid JSON with actor, situation, and
 assumption_to_test."""
+    return _with_thinking_toggle(prompt, enable_thinking)
+
+
+def direction_pressure_user_prompt(
+    idea: str,
+    prior_constraints: list[str],
+    depth: int,
+    total: int,
+    direction: str,
+    enable_thinking: bool = False,
+    rejection_feedback: str | None = None,
+) -> str:
+    prior = "\n".join(f"- {item}" for item in prior_constraints) or "- None yet"
+    lens = DIRECTION_PROFILES[direction]
+    style = DIRECTION_STYLES[direction]
+    rejection = (
+        f"\nPrevious output was rejected:\n{rejection_feedback}\n"
+        if rejection_feedback
+        else ""
+    )
+    prompt = f"""Idea:
+{idea}
+
+Current depth:
+{depth} of {total}
+
+Direction:
+{direction}
+
+This direction's job:
+{lens}
+
+Prior pressure already applied:
+{prior}
+{rejection}
+Required style:
+- Ask one hard question for the {direction} direction.
+- Start the pressure question exactly with: {style["opening"]}
+- Direction shape: {style["shape"]}
+- Direction boundary: {style["avoid"]}
+- Use concrete nouns from the idea.
+- Name a real actor, object, habit, routine, risk, constraint, limitation, or
+  capability.
+- Do not say "the app needs", "the app must", "user adoption", "market fit",
+  "user-friendly", "seamless", "low adoption", or "existing workarounds".
+- Do not propose a feature, implementation, strategy, or solution.
+- why_it_bites must explain only the risk or stakes. Do not use recommendation
+  words like "should", "need to", "incorporate", "features", "solution", or
+  "guidance".
+- Do not reuse the same angle as any prior pressure.
+
+Return exactly one new pressure as valid JSON."""
+    return _with_thinking_toggle(prompt, enable_thinking)
+
+
+def why_bite_user_prompt(
+    idea: str,
+    direction: str,
+    pressure: str,
+    enable_thinking: bool = False,
+) -> str:
+    prompt = f"""Idea:
+{idea}
+
+Direction:
+{direction}
+
+Pressure question:
+{pressure}
+
+Write the missing why_it_bites field. It must be a short risk-only line that
+explains why this pressure threatens the idea. Do not recommend what to build,
+change, add, or do next.
+
+Return only valid JSON with why_it_bites."""
+    return _with_thinking_toggle(prompt, enable_thinking)
+
+
+def pressure_repair_user_prompt(
+    idea: str,
+    direction: str,
+    prior_constraints: list[str] | None = None,
+    why_it_bites: str | None = None,
+    enable_thinking: bool = False,
+) -> str:
+    prior = "\n".join(f"- {item}" for item in (prior_constraints or []))
+    prior_context = f"\nPrior pressure already applied:\n{prior}\n" if prior else ""
+    bite_context = (
+        f"\nExisting why_it_bites:\n{why_it_bites}\n" if why_it_bites else ""
+    )
+    style = DIRECTION_STYLES[direction]
+    prompt = f"""Idea:
+{idea}
+
+Direction:
+{direction}
+{prior_context}
+{bite_context}
+Write the missing pressure question for this direction. It must be a question
+that applies pressure to the idea, not a solution or plan.
+
+- Start the pressure question exactly with: {style["opening"]}
+- Direction shape: {style["shape"]}
+- Direction boundary: {style["avoid"]}
+
+Return only valid JSON with pressure."""
     return _with_thinking_toggle(prompt, enable_thinking)
 
 

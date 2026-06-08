@@ -6,9 +6,10 @@ Iris has a validated constraint engine and is shaping the Gradio product
 experience around it. The current codebase is a small Python package that calls
 an OpenAI-compatible MiniCPM endpoint, prints full idea spirals from a CLI
 harness, scores seed runs with an automated gate, and serves a Gradio interface
-through `app.py`. The current UI checkpoint is Iris UI v2 live interactivity: a
-FigJam-style canvas with live frame creation, user idea cards, model pressure
-cards, iteration stacking, multiple frames, and pan/zoom.
+through `app.py`. The current UI checkpoint is Iris UI v2 Fix 1: a FigJam-style
+canvas with live frame creation, user idea cards, model-authored
+four-direction pressure sets, iteration stacking, multiple frames, and existing
+pan/zoom controls.
 
 ## Initial Structure
 
@@ -59,11 +60,28 @@ app.py
   -> canvas click creates an independent idea frame
   -> user idea card Proceed calls the named Gradio API endpoint
   -> iris.ui.run_canvas_engine()
-  -> IrisEngine.pressure() for depths 1-4
+  -> IrisEngine.pressure_directions() for depths 1-4
   -> IrisEngine.distill() at center depth
-  -> response JSON returns one model pressure card or center card
-  -> JS renders the returned card and adds the next editable idea card
+  -> response JSON returns four model pressure cards or one center card
+  -> JS renders the returned pressure set and adds the next editable idea card
 ```
+
+## Four-Direction Pressure Set
+
+For each non-center depth, the UI asks the engine for one pressure in each
+standard direction:
+
+```text
+Constraints
+Limitations
+Capabilities
+Reality Contact
+```
+
+Each direction is still authored by MiniCPM. The Python layer enforces JSON
+shape, direction-specific question openings, non-advice language, repeat
+checks, and missing-field repairs by re-prompting MiniCPM. It does not invent
+the pressure question or `why_it_bites` line.
 
 ## Configuration
 

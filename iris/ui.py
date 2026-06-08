@@ -7,7 +7,7 @@ from html import escape
 import json
 from typing import Any, Iterable
 
-from iris.engine import IrisEngine, PressureResult
+from iris.engine import DirectionPressureResult, IrisEngine, PressureResult
 from iris.errors import IrisError
 
 
@@ -18,6 +18,7 @@ RING_NAMES = {
     3: "Existing Alternative",
     4: "Problem Truth",
 }
+DIRECTION_NAMES = ("Constraints", "Limitations", "Capabilities", "Reality Contact")
 
 
 @dataclass(frozen=True)
@@ -117,18 +118,21 @@ def run_canvas_engine(
         iris = engine or IrisEngine()
 
         if depth <= RINGS:
-            result = iris.pressure(idea, constraints, depth, RINGS)
+            results = iris.pressure_directions(idea, constraints, depth, RINGS)
             payload: dict[str, Any] = {
                 "ok": True,
-                "kind": "pressure",
+                "kind": "pressures",
                 "frame_id": frame_id,
                 "depth": depth,
-                "ring_label": ring_name(depth),
-                "pressure": result.pressure,
-                "why_it_bites": result.why_it_bites,
+                "cards": [
+                    {
+                        "direction": result.direction,
+                        "pressure": result.pressure,
+                        "why_it_bites": result.why_it_bites,
+                    }
+                    for result in results
+                ],
             }
-            if result.alternative:
-                payload["alternative"] = result.alternative
             return json.dumps(payload)
 
         if depth == RINGS + 1:
@@ -160,14 +164,25 @@ def pressure_cards_to_constraints(cards: list[dict[str, Any]]) -> list[str]:
         if not pressure or not why:
             continue
         alternative = str(card.get("alternative", "")).strip() or None
-        constraints.append(
-            PressureResult(
-                pressure=pressure,
-                why_it_bites=why,
-                raw="",
-                alternative=alternative,
-            ).as_constraint()
-        )
+        direction = str(card.get("direction", "")).strip()
+        if direction:
+            constraints.append(
+                DirectionPressureResult(
+                    direction=direction,
+                    pressure=pressure,
+                    why_it_bites=why,
+                    raw="",
+                ).as_constraint()
+            )
+        else:
+            constraints.append(
+                PressureResult(
+                    pressure=pressure,
+                    why_it_bites=why,
+                    raw="",
+                    alternative=alternative,
+                ).as_constraint()
+            )
     return constraints
 
 
@@ -570,6 +585,7 @@ APP_JS = r"""
     3: "Existing Alternative",
     4: "Problem Truth",
   };
+  const DIRECTIONS = ["Constraints", "Limitations", "Capabilities", "Reality Contact"];
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 1.8;
   const FRAME_WIDTH = 820;
@@ -608,7 +624,11 @@ APP_JS = r"""
   }
 
   function pressureEntries(frame) {
-    return frame.entries.filter((entry) => entry.type === "pressure");
+    return pressureSets(frame).flatMap((entry) => entry.cards);
+  }
+
+  function pressureSets(frame) {
+    return frame.entries.filter((entry) => entry.type === "pressure_set");
   }
 
   function ideaEntries(frame) {
@@ -616,7 +636,7 @@ APP_JS = r"""
   }
 
   function nextDepth(frame) {
-    return pressureEntries(frame).length + 1;
+    return pressureSets(frame).length + 1;
   }
 
   function makeEntryId() {
@@ -706,7 +726,7 @@ APP_JS = r"""
   }
 
   function renderFrame(frame) {
-    const depth = pressureEntries(frame).length;
+    const depth = pressureSets(frame).length;
     const status = frame.complete ? "Complete" : frame.status === "thinking" ? "Thinking" : "Ready";
     const activeClass = frame.id === state.activeFrameId ? " is-active" : "";
     return `
@@ -753,8 +773,8 @@ APP_JS = r"""
     if (entry.type === "idea") {
       return renderIdeaEntry(frame, entry);
     }
-    if (entry.type === "pressure") {
-      return renderPressureEntry(entry);
+    if (entry.type === "pressure_set") {
+      return renderPressureSetEntry(entry);
     }
     if (entry.type === "center") {
       return renderCenterEntry(entry);
@@ -792,19 +812,25 @@ APP_JS = r"""
     `;
   }
 
-  function renderPressureEntry(entry) {
-    const alternative = entry.alternative
-      ? `<small class="iris-alternative">Alternative: ${escapeHtml(entry.alternative)}</small>`
-      : "";
+  function renderPressureSetEntry(entry) {
     return `
-      <article class="iris-card iris-card-ai" data-entry-id="${escapeAttr(entry.id)}">
+      <div class="iris-pressure-set" data-entry-id="${escapeAttr(entry.id)}">
+        <div class="iris-pressure-grid">
+          ${entry.cards.map((card) => renderPressureEntry(card)).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderPressureEntry(card) {
+    return `
+      <article class="iris-card iris-card-ai">
         <div class="iris-card-kicker">
           <span>AI pressure</span>
-          <span>${escapeHtml(entry.ringLabel || RING_NAMES[entry.depth] || `Depth ${entry.depth}`)}</span>
+          <span>${escapeHtml(card.direction || "Direction")}</span>
         </div>
-        <h3>${escapeHtml(entry.pressure)}</h3>
-        <p>${escapeHtml(entry.why_it_bites)}</p>
-        ${alternative}
+        <h3>${escapeHtml(card.pressure)}</h3>
+        <p>${escapeHtml(card.why_it_bites)}</p>
       </article>
     `;
   }
@@ -827,15 +853,34 @@ APP_JS = r"""
   }
 
   function renderLoadingEntry(entry) {
-    const label = entry.depth <= RINGS ? RING_NAMES[entry.depth] : "Center";
+    if (entry.depth <= RINGS) {
+      return `
+        <div class="iris-pressure-set is-pending" data-entry-id="${escapeAttr(entry.id)}">
+          <div class="iris-pressure-grid">
+            ${DIRECTIONS.map((direction) => `
+              <article class="iris-card iris-card-ai is-pending">
+                <div class="iris-card-kicker">
+                  <span>AI pressure</span>
+                  <span>${escapeHtml(direction)}</span>
+                </div>
+                <h3>${escapeHtml(direction)} forming</h3>
+                <p>MiniCPM is applying pressure.</p>
+                <i aria-hidden="true"></i>
+              </article>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+    const label = "Center";
     return `
-      <article class="iris-card iris-card-ai is-pending" data-entry-id="${escapeAttr(entry.id)}">
+      <article class="iris-card iris-card-center is-pending" data-entry-id="${escapeAttr(entry.id)}">
         <div class="iris-card-kicker">
-          <span>${entry.depth <= RINGS ? "AI pressure" : "Center"}</span>
+          <span>Center</span>
           <span>${escapeHtml(label)}</span>
         </div>
         <h3>${escapeHtml(label)} forming</h3>
-        <p>MiniCPM is applying pressure.</p>
+        <p>MiniCPM is distilling the center.</p>
         <i aria-hidden="true"></i>
       </article>
     `;
@@ -907,12 +952,11 @@ APP_JS = r"""
       iterations: ideaEntries(frame)
         .filter((entry) => entry.value.trim())
         .map((entry) => ({ version: entry.version, idea: entry.value.trim() })),
-      prior_cards: pressureEntries(frame).map((entry) => ({
-        depth: entry.depth,
-        ring_label: entry.ringLabel,
-        pressure: entry.pressure,
-        why_it_bites: entry.why_it_bites,
-        alternative: entry.alternative || "",
+      prior_cards: pressureEntries(frame).map((card) => ({
+        depth: card.depth,
+        direction: card.direction,
+        pressure: card.pressure,
+        why_it_bites: card.why_it_bites,
       })),
     };
   }
@@ -1000,15 +1044,17 @@ APP_JS = r"""
       return;
     }
 
-    if (response.kind === "pressure") {
+    if (response.kind === "pressures") {
       frame.entries.splice(loadingIndex, 1, {
         id: loadingId,
-        type: "pressure",
+        type: "pressure_set",
         depth: response.depth,
-        ringLabel: response.ring_label,
-        pressure: response.pressure,
-        why_it_bites: response.why_it_bites,
-        alternative: response.alternative || "",
+        cards: response.cards.map((card) => ({
+          depth: response.depth,
+          direction: card.direction,
+          pressure: card.pressure,
+          why_it_bites: card.why_it_bites,
+        })),
       });
       const nextIdeaId = makeEntryId();
       frame.entries.push({
@@ -1021,7 +1067,7 @@ APP_JS = r"""
       });
       frame.status = "editing";
       state.pendingFocusId = nextIdeaId;
-      setStatus(`Frame ${frame.number}: ${response.ring_label} returned.`);
+      setStatus(`Frame ${frame.number}: 4 pressures returned.`);
       render();
       return;
     }
@@ -1665,6 +1711,21 @@ footer,
   place-items: center;
 }
 
+.iris-pressure-set {
+  width: 100%;
+}
+
+.iris-pressure-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.iris-pressure-grid .iris-card {
+  max-width: none;
+}
+
 .iris-card-ai {
   min-height: 180px;
   padding: 18px;
@@ -1827,6 +1888,10 @@ footer,
 
   .iris-canvas-viewport {
     height: calc(100vh - 104px);
+  }
+
+  .iris-pressure-grid {
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
   }
 }
 """

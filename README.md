@@ -6,17 +6,17 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 2 is focused on the Gradio product experience after
-the Day 1f engine gate passed. Latest validation note: Iris UI v2 now has a
-live FigJam-style canvas: click-to-create frames, real MiniCPM pressure cards,
-iteration stacking, multiple frames, and pan/zoom. See
-`docs/validation/day2-v2-live-interactive.md`.
+the Day 1f engine gate passed. Latest validation note: Iris UI v2 Fix 1 now
+returns four live MiniCPM pressure directions per Proceed. See
+`docs/validation/day2-v2-fix1-four-pressures.md`.
 
 ## Current Status
 
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
 - Python validation engine: Day 1 gate passed.
-- Gradio UI: Iris UI v2 live canvas/cards flow passing local browser smoke.
+- Gradio UI: Iris UI v2 live canvas/cards flow passing local browser smoke;
+  Fix 1 four-direction pressure cards are ready for Khalid review.
 - Project docs: see `docs/`.
 
 ## Repo Layout
@@ -106,6 +106,6 @@ endpoint environment variables set before launching.
 ## Next Inputs Needed
 
 - MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Human review of the Iris UI v2 live canvas flow.
-- Next polish decision: whether to add center-card auto-scroll, frame
-  minimization, or a small export/share path before hackathon demo packaging.
+- Human review of the Iris UI v2 Fix 1 four-pressure checkpoint.
+- Next approved UI fixes: zoom/pan polish, individual frame dragging, and
+  smoother transitions/loading after Fix 1 is confirmed.
