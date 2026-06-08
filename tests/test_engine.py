@@ -7,7 +7,7 @@ from iris.config import IrisConfig
 from iris.engine import DistillResult, IrisEngine, PressureResult, advice_language_phrase
 from iris.errors import IrisResponseError
 from iris.gate import score_spiral
-from iris.parser import parse_json_object
+from iris.parser import parse_json_object, parse_json_object_with_key
 from iris.spiral import SpiralRun
 from iris.ui import (
     CenterView,
@@ -52,6 +52,14 @@ class ParserTests(unittest.TestCase):
             '{"pressure":"First?", "why_it_bites":"First bite."}\n{"pressure":"Second?", "why_it_bites":"Second bite."}'
         )
         self.assertEqual(data["pressure"], "First?")
+
+    def test_parses_json_object_with_requested_key(self) -> None:
+        data = parse_json_object_with_key(
+            '{"pressure_question": "What hard rule blocks the saw?"} </think> {"why_it_bites": "The hidden risk appears at handoff."}',
+            "why_it_bites",
+        )
+
+        self.assertEqual(data["why_it_bites"], "The hidden risk appears at handoff.")
 
     def test_parses_python_literal_dict(self) -> None:
         data = parse_json_object(
@@ -552,6 +560,48 @@ class EngineTests(unittest.TestCase):
         )
         self.assertIn("Existing why_it_bites", client.messages[1][1]["content"])
         self.assertEqual(len(client.messages), 5)
+
+    def test_engine_reads_split_thinking_pressure_and_final_bite(self) -> None:
+        client = FakeClient(
+            [
+                '{"idea": "tool board", "direction": "Constraints", "pressure_question": "What hard safety rule stops neighbors from lending a power saw?"}',
+                '{"idea": "tool board", "direction": "Constraints", "pressure_question": "What hard safety rule stops neighbors from lending a power saw?"} </think> {"why_it_bites": "A safety boundary can block the handoff before trust matters."}',
+                '{"pressure": "Where does weekend tool rental break when the neighbor needs a rare saw size?", "why_it_bites": "The idea may only work for common tools and fail at the urgent edge."}',
+                '{"pressure": "What capability must exist to verify a neighbor power saw is available and safe?", "why_it_bites": "Without that capability, the marketplace cannot distinguish useful supply from risky supply."}',
+                '{"pressure": "What happens when a neighbor arrives Saturday morning and the borrowed saw is missing a blade?", "why_it_bites": "The real-world handoff can fail at the exact moment the rental is supposed to help."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        results = engine.pressure_directions(
+            "A marketplace for renting tools between neighbors.", [], 1, 4
+        )
+
+        self.assertEqual(
+            results[0].pressure,
+            "What hard safety rule stops neighbors from lending a power saw?",
+        )
+        self.assertEqual(
+            results[0].why_it_bites,
+            "A safety boundary can block the handoff before trust matters.",
+        )
+        self.assertEqual(len(client.messages), 5)
+
+    def test_engine_does_not_treat_build_as_concrete_keyword(self) -> None:
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    '{"pressure": "What hard rule makes this impossible to implement?", "why_it_bites": "A hard rule can block the idea before any useful test exists."}',
+                    '{"pressure": "Where does this break outside the easiest case?", "why_it_bites": "The idea may only survive when no real edge case appears."}',
+                    '{"pressure": "What capability must exist before this can work?", "why_it_bites": "Without the capability, the idea has no real operating surface."}',
+                    '{"pressure": "What happens when the first person tries to use this in a real moment?", "why_it_bites": "The first contact can reveal that the idea has no concrete behavior to attach to."}',
+                ]
+            )
+        )
+
+        results = engine.pressure_directions("build idea", [], 1, 4)
+
+        self.assertEqual(len(results), 4)
 
     def test_ui_engine_request_returns_four_pressure_payload(self) -> None:
         engine = IrisEngine(

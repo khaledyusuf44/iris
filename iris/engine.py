@@ -10,7 +10,7 @@ from typing import Protocol
 from iris.config import IrisConfig
 from iris.errors import IrisResponseError
 from iris.http_client import ChatCompletionsClient
-from iris.parser import parse_json_object, require_string
+from iris.parser import parse_json_object, parse_json_object_with_key, require_string
 from iris.prompts import (
     DISTILL_SYSTEM,
     DIRECTION_PROFILES,
@@ -31,6 +31,25 @@ from iris.prompts import (
 MAX_MODEL_ATTEMPTS = 4
 PRESSURE_REPEAT_THRESHOLD = 0.68
 DIRECTION_NAMES = tuple(DIRECTION_PROFILES.keys())
+PRESSURE_ALIASES = (
+    "constraint",
+    "question",
+    "pressure_question",
+    "pressure question",
+)
+WHY_IT_BITES_ALIASES = (
+    "why it bites",
+    "why_it_bits",
+    "why it bits",
+    "why this bites",
+    "why it matters",
+    "why",
+    "reason",
+    "rationale",
+    "stakes",
+    "risk",
+    "bite",
+)
 
 WEAK_ALTERNATIVE_FILLS = (
     "none",
@@ -266,28 +285,14 @@ class IrisEngine:
                 },
             ]
         )
-        data = parse_json_object(raw)
+        data = parse_json_object_with_key(
+            raw, "pressure", aliases=PRESSURE_ALIASES
+        )
         try:
-            pressure_text = require_string(
-                data, "pressure", aliases=("constraint", "question")
-            )
+            pressure_text = require_string(data, "pressure", aliases=PRESSURE_ALIASES)
             try:
                 why_text = require_string(
-                    data,
-                    "why_it_bites",
-                    aliases=(
-                        "why it bites",
-                        "why_it_bits",
-                        "why it bits",
-                        "why this bites",
-                        "why it matters",
-                        "why",
-                        "reason",
-                        "rationale",
-                        "stakes",
-                        "risk",
-                        "bite",
-                    ),
+                    data, "why_it_bites", aliases=WHY_IT_BITES_ALIASES
                 )
             except IrisResponseError:
                 pressure_text, why_text = _split_inline_why(pressure_text)
@@ -393,7 +398,9 @@ class IrisEngine:
                 },
             ]
         )
-        data = parse_json_object(raw)
+        data = parse_json_object_with_key(
+            raw, "pressure", aliases=PRESSURE_ALIASES
+        )
         try:
             pressure_text, why_text = _extract_direction_pressure_fields(data)
             if pressure_text is None:
@@ -440,11 +447,11 @@ class IrisEngine:
                 },
             ]
         )
-        data = parse_json_object(raw)
+        data = parse_json_object_with_key(
+            raw, "pressure", aliases=PRESSURE_ALIASES
+        )
         try:
-            return require_string(
-                data, "pressure", aliases=("constraint", "question")
-            )
+            return require_string(data, "pressure", aliases=PRESSURE_ALIASES)
         except IrisResponseError as exc:
             raise IrisResponseError(f"{exc}; raw response: {raw[:500]}") from exc
 
@@ -468,7 +475,9 @@ class IrisEngine:
                 },
             ]
         )
-        data = parse_json_object(raw)
+        data = parse_json_object_with_key(
+            raw, "why_it_bites", aliases=WHY_IT_BITES_ALIASES
+        )
         try:
             return _require_why_it_bites(data)
         except IrisResponseError as exc:
@@ -949,27 +958,14 @@ def _require_why_it_bites(data: dict[str, object]) -> str:
     return require_string(
         data,
         "why_it_bites",
-        aliases=(
-            "why it bites",
-            "why_it_bits",
-            "why this bites",
-            "why it matters",
-            "why",
-            "reason",
-            "rationale",
-            "stakes",
-            "risk",
-            "bite",
-        ),
+        aliases=WHY_IT_BITES_ALIASES,
     )
 
 
 def _extract_direction_pressure_fields(
     data: dict[str, object],
 ) -> tuple[str | None, str | None]:
-    pressure_value = _field_value(
-        data, "pressure", aliases=("constraint", "question")
-    )
+    pressure_value = _field_value(data, "pressure", aliases=PRESSURE_ALIASES)
     pressure_text = _pressure_text_from_value(pressure_value)
     why_text = _optional_why_it_bites(data)
 
@@ -993,9 +989,7 @@ def _pressure_text_from_value(value: object) -> str | None:
         return value.strip()
     if isinstance(value, dict):
         try:
-            return require_string(
-                value, "pressure", aliases=("constraint", "question")
-            )
+            return require_string(value, "pressure", aliases=PRESSURE_ALIASES)
         except IrisResponseError:
             return None
     return None
@@ -1052,6 +1046,7 @@ def _keywords(text: str) -> set[str]:
         "against",
         "already",
         "between",
+        "build",
         "could",
         "does",
         "from",

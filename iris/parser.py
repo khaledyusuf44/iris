@@ -39,6 +39,24 @@ def parse_json_object(text: str) -> dict[str, Any]:
     return parsed
 
 
+def parse_json_object_with_key(
+    text: str,
+    key: str,
+    aliases: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Parse the last embedded JSON object containing a requested key."""
+
+    if not isinstance(text, str):
+        raise IrisResponseError(f"Expected text response, got: {type(text).__name__}")
+
+    normalized_keys = {_normalize_key(item) for item in (key, *aliases)}
+    cleaned = FENCE_RE.sub("", text.strip())
+    for candidate in reversed(_json_object_candidates(cleaned)):
+        if _has_any_key(candidate, normalized_keys):
+            return candidate
+    return parse_json_object(text)
+
+
 def require_string(data: dict[str, Any], key: str, aliases: tuple[str, ...] = ()) -> str:
     value = _get_alias_value(data, key, aliases)
     if not isinstance(value, str) or not value.strip():
@@ -98,6 +116,61 @@ def _first_json_object(text: str) -> str | None:
     return None
 
 
+def _json_object_candidates(text: str) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for candidate_text in _json_object_strings(text):
+        candidate = _parse_object_candidate(candidate_text)
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
+
+
+def _json_object_strings(text: str) -> list[str]:
+    objects: list[str] = []
+    start: int | None = None
+    depth = 0
+    in_string = False
+    escape = False
+
+    for index, char in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}":
+            if depth == 0:
+                continue
+            depth -= 1
+            if depth == 0 and start is not None:
+                objects.append(text[start : index + 1])
+                start = None
+
+    return objects
+
+
+def _parse_object_candidate(text: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = _parse_repaired_json(text)
+        if parsed is None:
+            parsed = _parse_unkeyed_bite(text)
+            if parsed is None:
+                parsed = _parse_python_literal(text)
+    return parsed if isinstance(parsed, dict) else None
+
+
 def _parse_python_literal(text: str) -> dict[str, Any] | None:
     try:
         parsed = ast.literal_eval(text)
@@ -155,6 +228,10 @@ def _get_alias_value(data: dict[str, Any], key: str, aliases: tuple[str, ...]) -
         if value is not None:
             return value
     return None
+
+
+def _has_any_key(data: dict[str, Any], normalized_keys: set[str]) -> bool:
+    return any(_normalize_key(item_key) in normalized_keys for item_key in data)
 
 
 def _normalize_key(key: str) -> str:
