@@ -886,6 +886,64 @@ class EngineTests(unittest.TestCase):
             "Where does lecture flashcard review break when notes omit diagrams?",
         )
 
+    def test_ui_engine_request_soft_accepts_current_iteration_after_retry_exhaustion(self) -> None:
+        missed_iteration = (
+            '{"pressure": "What hard aviation rule blocks real-time model weight updates during a live flight?", '
+            '"why_it_bites": "Live model changes can create unpredictable decisions before operators can verify them."}'
+        )
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    missed_iteration,
+                    missed_iteration,
+                    missed_iteration,
+                    missed_iteration,
+                    '{"pressure": "Where does cheap compute break when vetted data is still too slow to arrive?", "why_it_bites": "The system can have processing power without trustworthy fresh inputs at the decision moment."}',
+                    '{"pressure": "What capability must exist to verify vetted data before cheap compute changes the model?", "why_it_bites": "Without verification, fast processing can amplify bad data rather than improve decisions."}',
+                    '{"pressure": "What happens when a pilot receives a cheap-compute update from a vetted data source mid-flight?", "why_it_bites": "The real cockpit moment can expose whether fresh information is trusted quickly enough to matter."}',
+                ]
+            )
+        )
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-1",
+                        "idea": (
+                            "so we can think about cheap compute allows this "
+                            "approach and well vetted data form amazing source"
+                        ),
+                        "depth": 2,
+                        "iterations": [
+                            {
+                                "version": 1,
+                                "idea": (
+                                    "A flight decision model that uses fresh data "
+                                    "during rare weather events."
+                                ),
+                            },
+                            {
+                                "version": 2,
+                                "idea": (
+                                    "so we can think about cheap compute allows "
+                                    "this approach and well vetted data form "
+                                    "amazing source"
+                                ),
+                            },
+                        ],
+                        "prior_cards": [],
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "pressures")
+        self.assertEqual(len(payload["cards"]), 4)
+        self.assertIn("aviation rule", payload["cards"][0]["pressure"])
+        self.assertIn("cheap compute", payload["cards"][1]["pressure"])
+
     def test_ui_render_includes_canvas_frame_and_center_card(self) -> None:
         html = render_spiral_html(
             SpiralView(

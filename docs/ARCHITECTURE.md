@@ -106,9 +106,9 @@ iterations. Prior model pressure cards are passed separately as forbidden
 pressure context so MiniCPM can avoid repeats without treating them as idea text
 to imitate.
 
-The UI path fails closed for malformed JSON, advice language, wrong direction
-shape, or missing current-iteration grounding. If the final retry is otherwise
-valid but still only fails the repeat-similarity check, the canvas accepts that
+The UI path fails closed for malformed JSON, advice language, or wrong
+direction shape. If the final retry is otherwise valid but still only fails the
+repeat-similarity or current-iteration grounding check, the canvas accepts that
 last model-authored card so an open-ended frame keeps stacking instead of
 collapsing into an error card.
 

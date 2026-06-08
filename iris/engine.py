@@ -824,7 +824,10 @@ def _direction_opening_feedback(direction: str, normalized_pressure: str) -> str
 
 
 def _is_soft_direction_failure(feedback: str) -> bool:
-    return "pressure repeats a prior pressure" in feedback
+    return (
+        "pressure repeats a prior pressure" in feedback
+        or "pressure ignored the current iteration" in feedback
+    )
 
 
 def _distill_quality_feedback(result: DistillResult, idea: str) -> str | None:
@@ -1062,13 +1065,18 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.lower()).strip()
 
 
-def _keywords(text: str) -> set[str]:
+def _keywords(text: str, *, min_length: int = 5) -> set[str]:
     stop_words = {
         "about",
         "actually",
         "after",
         "against",
         "already",
+        "allow",
+        "allows",
+        "also",
+        "amazing",
+        "approach",
         "between",
         "build",
         "canvas",
@@ -1086,6 +1094,7 @@ def _keywords(text: str) -> set[str]:
         "from",
         "have",
         "history",
+        "idea",
         "into",
         "iteration",
         "limitations",
@@ -1097,8 +1106,12 @@ def _keywords(text: str) -> set[str]:
         "that",
         "their",
         "them",
+        "they",
         "this",
+        "tool",
         "turns",
+        "user",
+        "well",
         "what",
         "when",
         "where",
@@ -1106,7 +1119,8 @@ def _keywords(text: str) -> set[str]:
         "while",
         "with",
     }
-    words = set(re.findall(r"[a-z][a-z0-9]{4,}", text.lower()))
+    minimum = max(min_length - 1, 1)
+    words = set(re.findall(rf"[a-z][a-z0-9]{{{minimum},}}", text.lower()))
     return {word for word in words if word not in stop_words}
 
 
@@ -1116,7 +1130,7 @@ def _current_iteration_keywords(text: str) -> set[str]:
         return set()
 
     original = _frame_context_section(text, "Original idea:")
-    current_keywords = _keywords(current)
+    current_keywords = _keywords(current, min_length=4)
     original_keywords = _keywords(original)
     original_variants = {
         variant
