@@ -382,3 +382,28 @@ Validation:
 - `git diff --check` passed.
 - `./scripts/check_repo.sh` passed.
 - Iris quality gate: not rerun for this docs-only guidance update.
+
+### 8e94961 - Keep canvas iterations contextual
+
+Date: 2026-06-08
+
+- Changed the canvas engine bridge so each Proceed call sends the current
+  iteration, original idea, and full idea history to MiniCPM.
+- Kept prior pressure cards as forbidden prior pressure context instead of
+  idea text, reducing model copy/repeat loops while preserving model authorship.
+- Made canvas pressure rounds open-ended instead of switching to a center card
+  after depth 4.
+- Added current-iteration grounding retries and a UI-only soft accept for the
+  final model-authored card when repeat similarity is the only remaining issue.
+- Added `docs/validation/day2-v2-infinite-context.md`.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860`: first idea returned 4 live
+  pressure cards, a short second iteration returned 4 more, the frame reached
+  Depth 02, and no model error card appeared.
+- Iris quality gate: not rerun for this UI iteration-context checkpoint.
