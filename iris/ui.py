@@ -232,8 +232,13 @@ def render_interactive_canvas_html() -> str:
       <span id="iris-zoom-label">100%</span>
     </div>
     <div class="iris-board-tools" aria-label="Canvas controls">
+      <button type="button" data-action="pan-left" aria-label="Pan left">&larr;</button>
+      <button type="button" data-action="pan-up" aria-label="Pan up">&uarr;</button>
+      <button type="button" data-action="pan-down" aria-label="Pan down">&darr;</button>
+      <button type="button" data-action="pan-right" aria-label="Pan right">&rarr;</button>
       <button type="button" data-action="zoom-out" aria-label="Zoom out">-</button>
       <button type="button" data-action="zoom-reset" aria-label="Reset zoom">Reset</button>
+      <button type="button" data-action="focus-active" aria-label="Focus active frame">Focus</button>
       <button type="button" data-action="zoom-in" aria-label="Zoom in">+</button>
     </div>
   </header>
@@ -610,6 +615,7 @@ APP_JS = r"""
     pan: { x: 120, y: 92 },
     scale: 1,
     pointer: null,
+    suppressClickUntil: 0,
     lastPointerCreateAt: 0,
     lastDragAt: 0,
     pendingFocusId: null,
@@ -689,6 +695,38 @@ APP_JS = r"""
     renderTransform();
   }
 
+  function panBy(deltaX, deltaY) {
+    state.pan.x += deltaX;
+    state.pan.y += deltaY;
+    renderTransform();
+  }
+
+  function resetView() {
+    state.scale = 1;
+    state.pan = { x: 120, y: 92 };
+    renderTransform();
+  }
+
+  function focusFrame(frameId = state.activeFrameId) {
+    const frame = frameById(frameId);
+    if (!frame) {
+      resetView();
+      return;
+    }
+    const rect = viewport.getBoundingClientRect();
+    const frameNode = world.querySelector(`[data-frame-id="${frame.id}"]`);
+    const frameHeight = frameNode ? frameNode.offsetHeight : 420;
+    const comfortableScale = clamp(
+      Math.min((rect.width - 96) / FRAME_WIDTH, (rect.height - 96) / frameHeight, 1.1),
+      0.42,
+      1.1,
+    );
+    state.scale = comfortableScale;
+    state.pan.x = rect.width / 2 - (frame.x + FRAME_WIDTH / 2) * state.scale;
+    state.pan.y = rect.height / 2 - (frame.y + frameHeight / 2) * state.scale;
+    renderTransform();
+  }
+
   function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
   }
@@ -731,7 +769,7 @@ APP_JS = r"""
     const activeClass = frame.id === state.activeFrameId ? " is-active" : "";
     return `
       <section class="iris-frame${activeClass}" data-frame-id="${escapeAttr(frame.id)}" style="transform: translate(${frame.x}px, ${frame.y}px);">
-        <header class="iris-frame-header">
+        <header class="iris-frame-header" data-frame-drag="true" data-frame-id="${escapeAttr(frame.id)}" title="Drag frame">
           <div>
             <span>Idea frame</span>
             <strong>Frame ${frame.number}</strong>
@@ -1126,12 +1164,17 @@ APP_JS = r"""
     return escapeHtml(value).replace(/`/g, "&#96;");
   }
 
-  viewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || event.target.closest(".iris-frame") || event.target.closest(".iris-board-tools")) {
-      return;
+  function isFormTarget(target) {
+    if (!(target instanceof Element)) {
+      return false;
     }
+    return Boolean(target.closest("textarea, input, button, select, a, [contenteditable='true']"));
+  }
+
+  function beginPan(event) {
     viewport.setPointerCapture(event.pointerId);
     state.pointer = {
+      mode: "pan",
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
@@ -1139,6 +1182,57 @@ APP_JS = r"""
       panY: state.pan.y,
       dragged: false,
     };
+    viewport.classList.add("is-panning");
+  }
+
+  function beginFrameDrag(event, frameId) {
+    const frame = frameById(frameId);
+    if (!frame) {
+      return;
+    }
+    viewport.setPointerCapture(event.pointerId);
+    state.activeFrameId = frame.id;
+    state.pointer = {
+      mode: "frame",
+      id: event.pointerId,
+      frameId: frame.id,
+      x: event.clientX,
+      y: event.clientY,
+      frameX: frame.x,
+      frameY: frame.y,
+      dragged: false,
+    };
+    viewport.classList.add("is-frame-dragging");
+    render();
+  }
+
+  function finishPointer(event) {
+    const pointer = state.pointer;
+    if (!pointer || pointer.id !== event.pointerId) {
+      return null;
+    }
+    state.pointer = null;
+    viewport.classList.remove("is-panning", "is-frame-dragging");
+    if (pointer.dragged) {
+      state.lastDragAt = Date.now();
+      state.suppressClickUntil = Date.now() + 300;
+    }
+    return pointer;
+  }
+
+  viewport.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.target.closest(".iris-board-tools") || isFormTarget(event.target)) {
+      return;
+    }
+    const frameHeader = event.target.closest("[data-frame-drag='true']");
+    if (frameHeader) {
+      event.preventDefault();
+      beginFrameDrag(event, frameHeader.dataset.frameId);
+      return;
+    }
+    if (!event.target.closest(".iris-frame")) {
+      beginPan(event);
+    }
   });
 
   viewport.addEventListener("pointermove", (event) => {
@@ -1151,32 +1245,53 @@ APP_JS = r"""
     if (Math.hypot(dx, dy) > 4) {
       pointer.dragged = true;
     }
-    if (pointer.dragged) {
+    if (pointer.dragged && pointer.mode === "pan") {
       state.pan.x = pointer.panX + dx;
       state.pan.y = pointer.panY + dy;
       renderTransform();
     }
+    if (pointer.dragged && pointer.mode === "frame") {
+      const frame = frameById(pointer.frameId);
+      if (!frame) {
+        return;
+      }
+      frame.x = Math.round(pointer.frameX + dx / state.scale);
+      frame.y = Math.round(pointer.frameY + dy / state.scale);
+      const frameNode = world.querySelector(`[data-frame-id="${frame.id}"]`);
+      if (frameNode) {
+        frameNode.style.transform = `translate(${frame.x}px, ${frame.y}px)`;
+      }
+    }
   });
 
   viewport.addEventListener("pointerup", (event) => {
-    const pointer = state.pointer;
-    if (!pointer || pointer.id !== event.pointerId) {
+    const pointer = finishPointer(event);
+    if (!pointer) {
       return;
     }
-    state.pointer = null;
+    if (pointer.mode === "frame") {
+      render();
+      return;
+    }
     if (pointer.dragged) {
-      state.lastDragAt = Date.now();
       return;
     }
-    if (!event.target.closest(".iris-frame")) {
+    if (pointer.mode === "pan" && !event.target.closest(".iris-frame")) {
       const point = screenToWorld(event.clientX, event.clientY);
       state.lastPointerCreateAt = Date.now();
       createFrame(point.x, point.y);
     }
   });
 
+  viewport.addEventListener("pointercancel", (event) => {
+    finishPointer(event);
+  });
+
   viewport.addEventListener("click", (event) => {
     if (event.target.closest(".iris-frame") || event.target.closest(".iris-board-tools")) {
+      return;
+    }
+    if (Date.now() < state.suppressClickUntil) {
       return;
     }
     if (Date.now() - state.lastPointerCreateAt < 250) {
@@ -1190,12 +1305,19 @@ APP_JS = r"""
   });
 
   viewport.addEventListener("wheel", (event) => {
-    if (event.target.closest(".iris-frame")) {
+    if (isFormTarget(event.target) && !(event.ctrlKey || event.metaKey)) {
       return;
     }
     event.preventDefault();
-    const direction = event.deltaY > 0 ? -1 : 1;
-    zoomAt(event.clientX, event.clientY, state.scale * (direction > 0 ? 1.08 : 0.92));
+    if (event.ctrlKey || event.metaKey) {
+      zoomAt(event.clientX, event.clientY, state.scale * Math.exp(-event.deltaY * 0.002));
+      return;
+    }
+    if (event.altKey) {
+      zoomAt(event.clientX, event.clientY, state.scale * Math.exp(-event.deltaY * 0.003));
+      return;
+    }
+    panBy(-event.deltaX, -event.deltaY);
   }, { passive: false });
 
   document.addEventListener("click", (event) => {
@@ -1219,9 +1341,22 @@ APP_JS = r"""
       zoomAt(centerX, centerY, state.scale * 0.86);
     }
     if (action === "zoom-reset") {
-      state.scale = 1;
-      state.pan = { x: 120, y: 92 };
-      renderTransform();
+      resetView();
+    }
+    if (action === "focus-active") {
+      focusFrame();
+    }
+    if (action === "pan-left") {
+      panBy(96, 0);
+    }
+    if (action === "pan-right") {
+      panBy(-96, 0);
+    }
+    if (action === "pan-up") {
+      panBy(0, 96);
+    }
+    if (action === "pan-down") {
+      panBy(0, -96);
     }
   });
 
@@ -1244,12 +1379,32 @@ APP_JS = r"""
 
   document.addEventListener("keydown", (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLTextAreaElement) || !target.dataset.frameId) {
-      return;
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    if (target instanceof HTMLTextAreaElement && (event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
       proceed(target.dataset.frameId, target.dataset.entryId);
+      return;
+    }
+    if (target instanceof HTMLTextAreaElement) {
+      return;
+    }
+    const rect = viewport.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoomAt(centerX, centerY, state.scale * 1.12);
+    }
+    if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      zoomAt(centerX, centerY, state.scale * 0.88);
+    }
+    if (event.key === "0") {
+      event.preventDefault();
+      resetView();
+    }
+    if (event.key === "f" || event.key === "F") {
+      event.preventDefault();
+      focusFrame();
     }
   });
 
@@ -1423,11 +1578,18 @@ footer,
   height: calc(100vh - 64px);
   overflow: hidden;
   touch-action: none;
-  cursor: crosshair;
+  overscroll-behavior: none;
+  user-select: none;
+  cursor: grab;
   background:
     radial-gradient(circle at 20% 12%, rgba(102, 217, 215, 0.14), transparent 25%),
     radial-gradient(circle at 75% 70%, rgba(220, 123, 210, 0.12), transparent 28%),
     var(--iris-canvas);
+}
+
+.iris-canvas-viewport.is-panning,
+.iris-canvas-viewport.is-frame-dragging {
+  cursor: grabbing;
 }
 
 .iris-canvas-viewport::before {
@@ -1482,6 +1644,7 @@ footer,
     var(--iris-frame);
   box-shadow: 0 24px 70px var(--iris-shadow);
   backdrop-filter: blur(12px);
+  will-change: transform;
 }
 
 .iris-frame.is-active {
@@ -1496,6 +1659,13 @@ footer,
   gap: 18px;
   min-width: 0;
   margin-bottom: 18px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.iris-frame-header:active {
+  cursor: grabbing;
 }
 
 .iris-frame-header div:first-child {
@@ -1635,6 +1805,7 @@ footer,
   line-height: 1.35;
   padding: 14px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  user-select: text;
 }
 
 .iris-card textarea:focus {

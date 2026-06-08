@@ -484,7 +484,9 @@ class EngineTests(unittest.TestCase):
 
         self.assertIn("iris-canvas-viewport", html)
         self.assertIn("iris-world", html)
+        self.assertIn("pan-left", html)
         self.assertIn("zoom-in", html)
+        self.assertIn("focus-active", html)
         self.assertNotIn("iris-frame-primary", html)
         self.assertNotIn("marketplace", html.lower())
         self.assertNotIn("lecture notes", html.lower())
