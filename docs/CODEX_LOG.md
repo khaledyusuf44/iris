@@ -430,3 +430,29 @@ Validation:
 - Live local `run_canvas_engine()` smoke against MiniCPM4.1 passed for the
   reported second-iteration wording: `ok: true`, 4 pressure cards, Depth 02.
 - Iris quality gate: not rerun for this UI bugfix.
+
+## 2026-06-10
+
+### c87d6d0 - Preserve deep canvas frame memory
+
+- Changed the canvas engine bridge so each model call includes a structured
+  frame-memory prompt: frame continuity, current iteration, original idea, full
+  user iteration history, and prior AI pressure trail with depth, direction,
+  pressure, and `why_it_bites`.
+- Kept prior cards as separate forbidden pressure context so MiniCPM can stay
+  synced with the idea's origin without copying earlier AI cards.
+- Added deep-frame regression coverage for later-depth ideations in one frame.
+- Added a UI soft-pass for broad idea-grounding retry exhaustion, while
+  malformed JSON, advice language, and wrong direction shape still fail closed.
+- Updated README, architecture notes, and
+  `docs/validation/day2-v2-deep-frame-memory.md`.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Live local `run_canvas_engine()` smoke against MiniCPM4.1 passed at Depth 06
+  with four user iterations and three prior AI pressure cards in one frame.
+- Iris quality gate: not rerun for this UI memory checkpoint.
