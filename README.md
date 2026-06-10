@@ -6,19 +6,18 @@ pulled through shrinking rings of constraints until it collapses into one
 concrete next action.
 
 Status: in progress. Day 2 is focused on the Gradio product experience after
-the Day 1f engine gate passed. Latest validation note: Iris UI v2 now has
-native canvas navigation polish: frame-header dragging, wheel/pinch zoom, wheel
-pan, toolbar pan, and focus controls. See
-`docs/validation/day2-v2-canvas-navigation.md`.
+the Day 1f engine gate passed. Latest validation note: Iris UI v2 now preserves
+deep single-frame memory across many ideations while keeping the canvas
+open-ended. See `docs/validation/day2-v2-deep-frame-memory.md`.
 
 ## Current Status
 
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
 - Python validation engine: Day 1 gate passed.
-- Gradio UI: Iris UI v2 live canvas/cards flow passing local browser smoke;
-  four-direction pressure cards plus canvas navigation polish are ready for
-  Khalid review.
+- Gradio UI: Iris UI v2 live canvas/cards flow passing local smoke;
+  four-direction pressure cards, canvas navigation polish, and deep frame
+  memory are ready for Khalid review.
 - Project docs: see `docs/`.
 - Hackathon build guidance: see `docs/BUILD_SMALL_FIELD_GUIDE.md`.
 

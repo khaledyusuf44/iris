@@ -688,6 +688,7 @@ class EngineTests(unittest.TestCase):
     def test_ui_engine_request_passes_full_frame_context(self) -> None:
         prior_cards = [
             {
+                "depth": 1,
                 "direction": "Constraints",
                 "pressure": "What hard trust boundary blocks neighbors from sharing drills?",
                 "why_it_bites": "The first handoff can fail before the marketplace creates value.",
@@ -702,12 +703,17 @@ class EngineTests(unittest.TestCase):
                 },
                 {"version": 2, "idea": "Focus on roommate access first."},
             ],
+            prior_cards=prior_cards,
         )
 
+        self.assertIn("Frame continuity:", context)
         self.assertIn("Original idea:", context)
         self.assertIn("A marketplace for renting tools between neighbors.", context)
         self.assertIn("Current iteration:", context)
         self.assertIn("Focus on roommate access first.", context)
+        self.assertIn("Prior AI pressure trail:", context)
+        self.assertIn("Depth 01 / Constraints", context)
+        self.assertIn("The first handoff can fail", context)
         self.assertNotIn("Previous model pressure cards:", context)
 
         client = FakeClient(
@@ -748,8 +754,11 @@ class EngineTests(unittest.TestCase):
         self.assertIn("Current iteration:", prompt)
         self.assertIn("Focus on roommate access first.", prompt)
         self.assertIn("Prior pressure already applied:", prompt)
+        self.assertIn("Prior AI pressure trail:", prompt)
         self.assertIn("trust boundary", prompt)
+        self.assertIn("The first handoff can fail", prompt)
         self.assertIn("forbidden list", prompt)
+        self.assertIn("stay synced with the idea's origin", prompt)
 
     def test_direction_pressure_retries_when_current_iteration_is_ignored(self) -> None:
         context = build_frame_context(
@@ -764,6 +773,7 @@ class EngineTests(unittest.TestCase):
                     "idea": "Focus on roommates borrowing from the original neighbor board first.",
                 },
             ],
+            prior_cards=[],
         )
         client = FakeClient(
             [
@@ -782,6 +792,79 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(results), 4)
         self.assertEqual(len(client.messages), 5)
         self.assertIn("ignored the current iteration", client.messages[1][1]["content"])
+
+    def test_ui_engine_request_preserves_deep_frame_memory(self) -> None:
+        prior_cards = [
+            {
+                "depth": 1,
+                "direction": "Reality Contact",
+                "pressure": "What happens when a dispatcher receives weather data late?",
+                "why_it_bites": "The flight decision can already be locked before the data arrives.",
+            },
+            {
+                "depth": 4,
+                "direction": "Capabilities",
+                "pressure": "What capability verifies a rare weather source during a flight?",
+                "why_it_bites": "A fast model can still amplify untrusted data.",
+            },
+            {
+                "depth": 7,
+                "direction": "Limitations",
+                "pressure": "Where does cheap compute fail when the data source is delayed?",
+                "why_it_bites": "Compute speed does not solve the freshness of the signal.",
+            },
+        ]
+        client = FakeClient(
+            [
+                '{"pressure": "What hard certification rule blocks vetted weather data from changing a live flight model?", "why_it_bites": "Certification may freeze the decision path before fresh data matters."}',
+                '{"pressure": "Where does vetted weather data break when cheap compute receives the source after the pilot decision?", "why_it_bites": "The strongest data is useless if it arrives after the operational moment."}',
+                '{"pressure": "What capability proves the vetted weather source is trustworthy before cheap compute acts?", "why_it_bites": "Without trust proof, fast updates can make the system confidently wrong."}',
+                '{"pressure": "What happens when a pilot sees a cheap-compute recommendation from a vetted data source mid-flight?", "why_it_bites": "The cockpit moment tests whether the model output is trusted under pressure."}',
+            ]
+        )
+        engine = IrisEngine(client)
+
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-9",
+                        "idea": "Focus on vetted weather data plus cheap compute.",
+                        "depth": 8,
+                        "iterations": [
+                            {
+                                "version": 1,
+                                "idea": "An aviation model that updates with rare weather data.",
+                            },
+                            {
+                                "version": 2,
+                                "idea": "Use cheap compute to make updates affordable.",
+                            },
+                            {
+                                "version": 3,
+                                "idea": "Require vetted weather data before model updates.",
+                            },
+                            {
+                                "version": 4,
+                                "idea": "Focus on vetted weather data plus cheap compute.",
+                            },
+                        ],
+                        "prior_cards": prior_cards,
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["depth"], 8)
+        self.assertEqual(len(payload["cards"]), 4)
+        prompt = client.messages[0][1]["content"]
+        self.assertIn("Idea v1: An aviation model", prompt)
+        self.assertIn("Idea v4: Focus on vetted weather data", prompt)
+        self.assertIn("Depth 07 / Limitations", prompt)
+        self.assertIn("Compute speed does not solve", prompt)
+        self.assertIn("full frame context across infinite ideation", prompt)
 
     def test_ui_engine_request_keeps_pressure_rounds_open_ended(self) -> None:
         prior_cards = [
@@ -943,6 +1026,52 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(payload["cards"]), 4)
         self.assertIn("aviation rule", payload["cards"][0]["pressure"])
         self.assertIn("cheap compute", payload["cards"][1]["pressure"])
+
+    def test_ui_engine_request_soft_accepts_idea_grounding_after_retry_exhaustion(self) -> None:
+        missed_idea = (
+            '{"pressure": "What hard payroll rule blocks employee timesheet imports?", '
+            '"why_it_bites": "A compliance boundary can stop the workflow before value appears."}'
+        )
+        engine = IrisEngine(
+            FakeClient(
+                [
+                    missed_idea,
+                    missed_idea,
+                    missed_idea,
+                    missed_idea,
+                    '{"pressure": "Where does vetted weather data break when cheap compute receives it late?", "why_it_bites": "The model can be fast and still miss the operational moment."}',
+                    '{"pressure": "What capability validates the weather source before cheap compute updates the flight model?", "why_it_bites": "Without validation, fast updates can amplify a bad signal."}',
+                    '{"pressure": "What happens when a pilot receives a vetted weather update after choosing a route?", "why_it_bites": "The real decision moment can pass before the update matters."}',
+                ]
+            )
+        )
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-1",
+                        "idea": "Focus on vetted weather data plus cheap compute.",
+                        "depth": 4,
+                        "iterations": [
+                            {
+                                "version": 1,
+                                "idea": "An aviation model for rare weather decisions.",
+                            },
+                            {
+                                "version": 2,
+                                "idea": "Focus on vetted weather data plus cheap compute.",
+                            },
+                        ],
+                        "prior_cards": [],
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(payload["cards"]), 4)
+        self.assertIn("payroll rule", payload["cards"][0]["pressure"])
 
     def test_ui_render_includes_canvas_frame_and_center_card(self) -> None:
         html = render_spiral_html(

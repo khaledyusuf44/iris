@@ -617,7 +617,7 @@ def _pressure_quality_feedback(
 ) -> str | None:
     pressure = result.pressure.strip()
     normalized = _normalize(pressure)
-    idea_keywords = _keywords(idea)
+    idea_keywords = _idea_grounding_keywords(idea)
     profile = RING_PROFILES.get(depth)
 
     if "?" not in pressure:
@@ -827,6 +827,7 @@ def _is_soft_direction_failure(feedback: str) -> bool:
     return (
         "pressure repeats a prior pressure" in feedback
         or "pressure ignored the current iteration" in feedback
+        or "pressure is not grounded in the idea" in feedback
     )
 
 
@@ -1078,6 +1079,8 @@ def _keywords(text: str, *, min_length: int = 5) -> set[str]:
         "amazing",
         "approach",
         "between",
+        "before",
+        "bites",
         "build",
         "canvas",
         "cards",
@@ -1101,6 +1104,7 @@ def _keywords(text: str, *, min_length: int = 5) -> set[str]:
         "model",
         "original",
         "pressure",
+        "prior",
         "previous",
         "reality",
         "that",
@@ -1109,6 +1113,7 @@ def _keywords(text: str, *, min_length: int = 5) -> set[str]:
         "they",
         "this",
         "tool",
+        "trail",
         "turns",
         "user",
         "well",
@@ -1122,6 +1127,18 @@ def _keywords(text: str, *, min_length: int = 5) -> set[str]:
     minimum = max(min_length - 1, 1)
     words = set(re.findall(rf"[a-z][a-z0-9]{{{minimum},}}", text.lower()))
     return {word for word in words if word not in stop_words}
+
+
+def _idea_grounding_keywords(text: str) -> set[str]:
+    current = _frame_context_section(text, "Current iteration:")
+    original = _frame_context_section(text, "Original idea:")
+    history = _frame_context_section(text, "Iteration history:")
+    if current or original or history:
+        return _keywords(
+            " ".join(item for item in (current, original, history) if item),
+            min_length=4,
+        )
+    return _keywords(text)
 
 
 def _current_iteration_keywords(text: str) -> set[str]:

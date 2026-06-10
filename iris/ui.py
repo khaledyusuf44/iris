@@ -119,6 +119,7 @@ def run_canvas_engine(
         frame_idea = build_frame_context(
             current_idea=idea,
             iterations=iterations,
+            prior_cards=prior_cards,
         )
         iris = engine or IrisEngine()
 
@@ -153,6 +154,7 @@ def build_frame_context(
     *,
     current_idea: str,
     iterations: list[dict[str, Any]],
+    prior_cards: list[dict[str, Any]],
 ) -> str:
     history: list[tuple[int, str]] = []
     for index, item in enumerate(iterations, start=1):
@@ -170,6 +172,13 @@ def build_frame_context(
 
     original_idea = history[0][1]
     lines = [
+        "Frame continuity:",
+        (
+            "This is one continuous idea frame. The model must keep the root "
+            "idea, every user iteration, and the prior AI pressure trail in "
+            "view while pressuring the current iteration."
+        ),
+        "",
         "Current iteration:",
         current_idea,
         "",
@@ -181,7 +190,41 @@ def build_frame_context(
     for version, idea in history:
         lines.append(f"- Idea v{version}: {idea}")
 
+    pressure_trail = _pressure_trail_lines(prior_cards)
+    if pressure_trail:
+        lines.extend(
+            [
+                "",
+                "Prior AI pressure trail:",
+                *pressure_trail,
+            ]
+        )
+
     return "\n".join(lines)
+
+
+def _pressure_trail_lines(cards: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for card in cards:
+        pressure = str(card.get("pressure", "")).strip()
+        why = str(card.get("why_it_bites", "")).strip()
+        if not pressure and not why:
+            continue
+        try:
+            depth = int(card.get("depth", 0))
+        except (TypeError, ValueError):
+            depth = 0
+        depth_label = f"Depth {depth:02d}" if depth > 0 else "Prior depth"
+        direction = str(card.get("direction", "AI pressure")).strip() or "AI pressure"
+        if pressure and why:
+            lines.append(
+                f"- {depth_label} / {direction}: {pressure} Why it bites: {why}"
+            )
+        elif pressure:
+            lines.append(f"- {depth_label} / {direction}: {pressure}")
+        else:
+            lines.append(f"- {depth_label} / {direction} why_it_bites: {why}")
+    return lines
 
 
 def pressure_cards_to_constraints(cards: list[dict[str, Any]]) -> list[str]:

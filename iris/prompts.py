@@ -302,12 +302,14 @@ Prior pressure already applied:
 {rejection}
 How to use this context:
 - Treat Current iteration as the idea being pressured now.
-- Use Original idea and Iteration history only to resolve references and keep
-  continuity with the frame.
+- Use Original idea, Iteration history, and Prior AI pressure trail to preserve
+  the full frame context across infinite ideation.
 - If Current iteration differs from Original idea, the pressure question must
   name a concrete actor, object, or action from Current iteration.
 - Prior pressure already applied is a forbidden list, not examples to imitate.
   Do not restate any prior question, actor, object, failure scene, or angle.
+- Prior AI pressure trail explains how the conversation got here. Use it to
+  stay synced with the idea's origin and evolution, but do not copy its wording.
 
 Required style:
 - Ask one hard question for the {direction} direction.

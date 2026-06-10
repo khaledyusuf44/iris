@@ -73,9 +73,9 @@ app.py
   -> empty-space drag and wheel gestures pan/zoom the canvas
   -> user idea card Proceed calls the named Gradio API endpoint
   -> iris.ui.run_canvas_engine()
-  -> original idea + current iteration + idea history become the frame context
-     for this call
-  -> prior pressure cards become forbidden prior pressure context
+  -> original idea + current iteration + idea history + prior AI pressure
+     trail become the frame memory for this call
+  -> prior pressure cards also become forbidden prior pressure context
   -> IrisEngine.pressure_directions() for every open-ended canvas depth
   -> response JSON returns four model pressure cards
   -> JS renders the returned pressure set and adds the next editable idea card
@@ -102,15 +102,15 @@ Canvas iteration is intentionally open-ended. The older CLI spiral still runs
 the four-ring plus center validation flow, but the UI keeps asking for pressure
 sets as the user adds more idea cards. Short follow-up phrases are grounded by
 the full frame context, including the original idea and previous idea
-iterations. Prior model pressure cards are passed separately as forbidden
-pressure context so MiniCPM can avoid repeats without treating them as idea text
-to imitate.
+iterations plus the prior AI pressure trail. Prior model pressure cards are
+also passed separately as forbidden pressure context so MiniCPM can avoid
+repeats without treating them as examples to imitate.
 
 The UI path fails closed for malformed JSON, advice language, or wrong
 direction shape. If the final retry is otherwise valid but still only fails the
-repeat-similarity or current-iteration grounding check, the canvas accepts that
-last model-authored card so an open-ended frame keeps stacking instead of
-collapsing into an error card.
+repeat-similarity, broad idea-grounding, or current-iteration grounding check,
+the canvas accepts that last model-authored card so an open-ended frame keeps
+stacking instead of collapsing into an error card.
 
 ## Configuration
 
