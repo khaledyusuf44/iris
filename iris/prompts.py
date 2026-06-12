@@ -300,16 +300,20 @@ This direction's job:
 Prior pressure already applied:
 {prior}
 {rejection}
-How to use this context:
-- Treat Current iteration as the idea being pressured now.
-- Use Original idea, Iteration history, and Prior AI pressure trail to preserve
-  the full frame context across infinite ideation.
-- If Current iteration differs from Original idea, the pressure question must
-  name a concrete actor, object, or action from Current iteration.
-- Prior pressure already applied is a forbidden list, not examples to imitate.
-  Do not restate any prior question, actor, object, failure scene, or angle.
-- Prior AI pressure trail explains how the conversation got here. Use it to
-  stay synced with the idea's origin and evolution, but do not copy its wording.
+How to use this context (this is YOUR ongoing dialogue with one specific person):
+- Treat Current iteration as the exact idea being pressured now. Quote or name
+  the specific words, nouns, and choices this person just used in it.
+- Read Original idea, Iteration history, and the Prior AI pressure trail as the
+  living memory of THIS conversation. Build directly on what they said and on
+  the pressures you already raised - this is a continuing thread, not a restart.
+- Each new pressure must go one level deeper than your earlier pressures and
+  react to how their idea has evolved across the iterations.
+- Do not repeat a prior pressure word-for-word or reuse its exact angle, but DO
+  continue the same line of thinking and reference the concrete details already
+  on the table.
+- The pressure must be so specific to THIS idea and THIS person's wording that
+  it could not be asked of any other idea. Never ask a generic question that
+  would fit any app or any product.
 
 Required style:
 - Ask one hard question for the {direction} direction.
@@ -327,7 +331,46 @@ Required style:
   "guidance".
 - Do not reuse the same angle as any prior pressure.
 
+Output ONLY the answer as a JSON object with exactly the keys "pressure" and
+"why_it_bites". Do NOT echo, repeat, or restate the idea, the direction, the
+context headings, or these instructions in your output.
+
 Return exactly one new pressure as valid JSON."""
+    return _with_thinking_toggle(prompt, enable_thinking)
+
+
+REFINE_SYSTEM = """You are Iris, helping a person crystallize the idea they have been pressuring.
+Write the single sharpened version of THEIR idea as it now stands after all the
+pressure - not a plan, not advice, not new features. Keep it their idea, only
+clearer and more honest about what it really is.
+
+Hard rules:
+- 2 to 3 sentences. Concrete and specific to this idea.
+- Do not invent features, solutions, or a build plan.
+- Do not say "you should" or recommend what to do next.
+- Return valid JSON only. No markdown. No prose outside the JSON.
+
+The JSON object must have exactly this string key:
+{"refined_idea": "..."}"""
+
+
+def refine_idea_user_prompt(
+    idea: str,
+    all_constraints: list[str],
+    enable_thinking: bool = False,
+) -> str:
+    constraints = "\n".join(f"- {item}" for item in all_constraints) or "- None"
+    prompt = f"""Idea and how it evolved:
+{idea}
+
+Pressure it has faced:
+{constraints}
+
+Write the sharpened version of this same idea now that it has survived this
+pressure. State what the idea really is, in 2 to 3 clear sentences. Do not add
+features or a plan.
+
+Return only valid JSON with refined_idea."""
     return _with_thinking_toggle(prompt, enable_thinking)
 
 

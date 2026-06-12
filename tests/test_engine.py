@@ -4,13 +4,22 @@ import json
 import unittest
 
 from iris.config import IrisConfig
-from iris.engine import DistillResult, IrisEngine, PressureResult, advice_language_phrase
-from iris.errors import IrisResponseError
+from iris.engine import (
+    DIRECTION_SOFT_ATTEMPTS,
+    DistillResult,
+    IrisEngine,
+    PressureResult,
+    advice_language_phrase,
+)
+from iris.errors import IrisError, IrisResponseError
 from iris.gate import score_spiral
 from iris.parser import parse_json_object, parse_json_object_with_key
 from iris.spiral import SpiralRun
 from iris.ui import (
+    APP_CSS,
+    APP_JS,
     CenterView,
+    MAX_TRAIL_LINES,
     RingView,
     SpatialSession,
     SpiralView,
@@ -28,7 +37,9 @@ class FakeClient:
         self.responses = responses
         self.messages: list[list[dict[str, str]]] = []
 
-    def complete(self, messages: list[dict[str, str]]) -> str:
+    def complete(
+        self, messages: list[dict[str, str]], temperature: float | None = None
+    ) -> str:
         self.messages.append(messages)
         return self.responses.pop(0)
 
@@ -483,16 +494,25 @@ class EngineTests(unittest.TestCase):
     def test_ui_interactive_shell_has_empty_canvas_contract(self) -> None:
         html = render_interactive_canvas_html()
 
-        self.assertIn("iris-canvas-viewport", html)
-        self.assertIn("iris-world", html)
-        self.assertIn("pan-left", html)
-        self.assertIn("zoom-in", html)
-        self.assertIn("focus-active", html)
+        # Focused sidebar + scrolling thread shell (no pan/zoom canvas).
+        self.assertIn("iris-frame-list", html)
+        self.assertIn("iris-thread", html)
+        self.assertIn("iris-thread-scroll", html)
+        self.assertIn('data-action="new-frame"', html)
+        self.assertIn("iris-sidebar", html)
+        self.assertNotIn("iris-canvas-viewport", html)
+        self.assertNotIn("pan-left", html)
+        self.assertNotIn("zoom-in", html)
         self.assertNotIn("iris-frame-primary", html)
         self.assertNotIn("marketplace", html.lower())
         self.assertNotIn("lecture notes", html.lower())
         self.assertNotIn("localStorage", html)
         self.assertNotIn("sessionStorage", html)
+        assets = f"{APP_JS}\n{APP_CSS}"
+        self.assertNotIn("fonts.googleapis.com", assets)
+        self.assertNotIn("cdn.jsdelivr.net", assets)
+        self.assertNotIn("html2pdf", assets)
+        self.assertIn("Save PDF", APP_JS)
 
     def test_engine_returns_four_direction_pressures(self) -> None:
         engine = IrisEngine(
@@ -748,17 +768,26 @@ class EngineTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["kind"], "pressures")
-        prompt = client.messages[0][1]["content"]
+        messages = client.messages[0]
+        prompt = messages[-1]["content"]
+        convo = "\n".join(message["content"] for message in messages)
+        # The final instruction still carries the grounded frame blob.
         self.assertIn("Original idea:", prompt)
         self.assertIn("A marketplace for renting tools between neighbors.", prompt)
         self.assertIn("Current iteration:", prompt)
         self.assertIn("Focus on roommate access first.", prompt)
         self.assertIn("Prior pressure already applied:", prompt)
-        self.assertIn("Prior AI pressure trail:", prompt)
         self.assertIn("trust boundary", prompt)
-        self.assertIn("The first handoff can fail", prompt)
-        self.assertIn("forbidden list", prompt)
-        self.assertIn("stay synced with the idea's origin", prompt)
+        self.assertIn("ongoing dialogue with one specific person", prompt)
+        self.assertIn("living memory of THIS conversation", prompt)
+        self.assertIn("could not be asked of any other idea", prompt)
+        # The prior pressure now lives in replayed conversation turns, not the blob.
+        self.assertNotIn("Prior AI pressure trail:", prompt)
+        self.assertIn("My idea (v1):", convo)
+        self.assertIn("Pressure I already raised:", convo)
+        self.assertTrue(
+            any(message["role"] == "assistant" for message in messages)
+        )
 
     def test_direction_pressure_retries_when_current_iteration_is_ignored(self) -> None:
         context = build_frame_context(
@@ -792,6 +821,153 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(results), 4)
         self.assertEqual(len(client.messages), 5)
         self.assertIn("ignored the current iteration", client.messages[1][1]["content"])
+
+    def test_pressure_directions_soft_mode_never_crashes_on_unparseable_echo(self) -> None:
+        # The local model echoes the prompt instead of answering: no "pressure"
+        # key, and invalid JSON. Soft mode must still return four cards.
+        echo = (
+            '{"idea": "build app", "direction": "Limitations", '
+            '"current_iteration": "make it simpler", "depth": 01}'
+        )
+        engine = IrisEngine(FakeClient([echo] * 64))
+        results = engine.pressure_directions(
+            "A study tool that turns lecture notes into flashcards.",
+            [],
+            2,
+            4,
+            allow_soft_failures=True,
+        )
+        self.assertEqual(len(results), 4)
+        self.assertEqual(
+            [result.direction for result in results],
+            ["Constraints", "Limitations", "Capabilities", "Reality Contact"],
+        )
+        for result in results:
+            self.assertTrue(result.pressure.strip())
+            self.assertTrue(result.why_it_bites.strip())
+
+    def test_pressure_directions_strict_mode_still_raises_on_unparseable(self) -> None:
+        echo = '{"idea": "build app", "depth": 01}'
+        engine = IrisEngine(FakeClient([echo] * 64))
+        with self.assertRaises(IrisError):
+            engine.pressure_directions(
+                "A study tool that turns lecture notes into flashcards.",
+                [],
+                2,
+                4,
+            )
+
+    def test_finalize_mode_returns_brief_payload(self) -> None:
+        client = FakeClient(
+            [
+                '{"refined_idea": "A free tool-lending board for one neighborhood that '
+                'leans on existing neighbor trust instead of deposits or payments."}',
+                '{"actor": "a neighbor who lends tools", "situation": "lending a power '
+                'drill to someone down the street", "assumption_to_test": "neighbors '
+                'will lend expensive tools without a deposit or contract"}',
+            ]
+        )
+        engine = IrisEngine(client)
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-1",
+                        "mode": "finalize",
+                        "idea": "Keep the neighbor tool board free and trust-based.",
+                        "iterations": [
+                            {"version": 1, "idea": "A marketplace for renting tools between neighbors."},
+                            {"version": 2, "idea": "Keep the neighbor tool board free and trust-based."},
+                        ],
+                        "prior_cards": [
+                            {
+                                "depth": 1,
+                                "direction": "Constraints",
+                                "pressure": "What hard trust boundary blocks neighbors from sharing drills?",
+                                "why_it_bites": "The first handoff can fail before value appears.",
+                            }
+                        ],
+                    }
+                ),
+                engine=engine,
+            )
+        )
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "final")
+        self.assertIn("trust", payload["refined_idea"].lower())
+        self.assertEqual(len(payload["journey"]), 2)
+        self.assertEqual(len(payload["pressures"]), 1)
+        self.assertTrue(payload["next_step"])
+        self.assertIn("neighbor", payload["actor"].lower())
+
+    def test_finalize_mode_survives_unparseable_model(self) -> None:
+        # Even if the model only echoes garbage, finalize must still return.
+        engine = IrisEngine(FakeClient(['{"junk": 1, "depth": 01}'] * 64))
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-1",
+                        "mode": "finalize",
+                        "idea": "Keep the neighbor tool board free and trust-based.",
+                        "iterations": [
+                            {"version": 1, "idea": "A marketplace for renting tools between neighbors."},
+                            {"version": 2, "idea": "Keep the neighbor tool board free and trust-based."},
+                        ],
+                        "prior_cards": [],
+                    }
+                ),
+                engine=engine,
+            )
+        )
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "final")
+        # Falls back to the current iteration text when the model cannot refine.
+        self.assertIn("trust-based", payload["refined_idea"].lower())
+
+    def test_build_frame_context_anchors_original_and_marks_current(self) -> None:
+        context = build_frame_context(
+            current_idea="Make it caregiver-first instead of elder-first.",
+            iterations=[
+                {"version": 1, "idea": "An app that reminds elderly people to take meds."},
+                {"version": 2, "idea": "Make it caregiver-first instead of elder-first."},
+            ],
+            prior_cards=[],
+        )
+        # Original idea must appear before the current iteration so a small model
+        # anchors on the root idea first.
+        self.assertLess(
+            context.index("Original idea:"), context.index("Current iteration:")
+        )
+        # The latest history entry is flagged so the model knows which to pressure.
+        self.assertIn("(current)", context)
+        self.assertIn("- Idea v2: Make it caregiver-first", context)
+
+    def test_build_frame_context_caps_long_pressure_trail(self) -> None:
+        prior_cards = [
+            {
+                "depth": index,
+                "direction": "Constraints",
+                "pressure": f"What hard rule blocks step {index}?",
+                "why_it_bites": f"Risk {index} bites here.",
+            }
+            for index in range(1, MAX_TRAIL_LINES + 6)
+        ]
+        context = build_frame_context(
+            current_idea="Keep iterating the same frame.",
+            iterations=[{"version": 1, "idea": "An original framed idea to pressure."}],
+            prior_cards=prior_cards,
+        )
+        trail_lines = [
+            line
+            for line in context.splitlines()
+            if line.startswith("- Depth ")
+        ]
+        # The freshest rings are kept; older ones are trimmed with a marker.
+        self.assertEqual(len(trail_lines), MAX_TRAIL_LINES)
+        self.assertIn("older entries)", context)
+        self.assertIn(f"What hard rule blocks step {MAX_TRAIL_LINES + 5}?", context)
+        self.assertNotIn("What hard rule blocks step 1?", context)
 
     def test_ui_engine_request_preserves_deep_frame_memory(self) -> None:
         prior_cards = [
@@ -859,12 +1035,18 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["depth"], 8)
         self.assertEqual(len(payload["cards"]), 4)
-        prompt = client.messages[0][1]["content"]
+        messages = client.messages[0]
+        prompt = messages[-1]["content"]
+        convo = "\n".join(message["content"] for message in messages)
         self.assertIn("Idea v1: An aviation model", prompt)
         self.assertIn("Idea v4: Focus on vetted weather data", prompt)
-        self.assertIn("Depth 07 / Limitations", prompt)
-        self.assertIn("Compute speed does not solve", prompt)
-        self.assertIn("full frame context across infinite ideation", prompt)
+        self.assertIn("living memory of THIS conversation", prompt)
+        # Prior ideas and the pressures Iris raised are replayed as chat turns.
+        self.assertIn("My idea (v4):", convo)
+        self.assertIn("Pressure I already raised:", convo)
+        self.assertIn(
+            "What capability verifies a rare weather source during a flight?", convo
+        )
 
     def test_ui_engine_request_keeps_pressure_rounds_open_ended(self) -> None:
         prior_cards = [
@@ -977,10 +1159,9 @@ class EngineTests(unittest.TestCase):
         engine = IrisEngine(
             FakeClient(
                 [
-                    missed_iteration,
-                    missed_iteration,
-                    missed_iteration,
-                    missed_iteration,
+                    # Soft mode retries DIRECTION_SOFT_ATTEMPTS (2) times before
+                    # accepting the best-effort card for direction 1.
+                    *([missed_iteration] * DIRECTION_SOFT_ATTEMPTS),
                     '{"pressure": "Where does cheap compute break when vetted data is still too slow to arrive?", "why_it_bites": "The system can have processing power without trustworthy fresh inputs at the decision moment."}',
                     '{"pressure": "What capability must exist to verify vetted data before cheap compute changes the model?", "why_it_bites": "Without verification, fast processing can amplify bad data rather than improve decisions."}',
                     '{"pressure": "What happens when a pilot receives a cheap-compute update from a vetted data source mid-flight?", "why_it_bites": "The real cockpit moment can expose whether fresh information is trusted quickly enough to matter."}',
@@ -1035,10 +1216,7 @@ class EngineTests(unittest.TestCase):
         engine = IrisEngine(
             FakeClient(
                 [
-                    missed_idea,
-                    missed_idea,
-                    missed_idea,
-                    missed_idea,
+                    *([missed_idea] * DIRECTION_SOFT_ATTEMPTS),
                     '{"pressure": "Where does vetted weather data break when cheap compute receives it late?", "why_it_bites": "The model can be fast and still miss the operational moment."}',
                     '{"pressure": "What capability validates the weather source before cheap compute updates the flight model?", "why_it_bites": "Without validation, fast updates can amplify a bad signal."}',
                     '{"pressure": "What happens when a pilot receives a vetted weather update after choosing a route?", "why_it_bites": "The real decision moment can pass before the update matters."}',

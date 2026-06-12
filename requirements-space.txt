@@ -1,0 +1,4 @@
+# Build-time only deps for the Hugging Face Docker Space.
+# The runtime app uses the clean requirements.txt; this file documents the
+# extra packages the Dockerfile installs at build time.
+huggingface_hub>=0.23

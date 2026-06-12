@@ -7,7 +7,12 @@ from html import escape
 import json
 from typing import Any, Iterable
 
-from iris.engine import DirectionPressureResult, IrisEngine, PressureResult
+from iris.engine import (
+    DirectionPressureResult,
+    FinalBrief,
+    IrisEngine,
+    PressureResult,
+)
 from iris.errors import IrisError
 
 
@@ -19,6 +24,9 @@ RING_NAMES = {
     4: "Problem Truth",
 }
 DIRECTION_NAMES = ("Constraints", "Limitations", "Capabilities", "Reality Contact")
+# Cap how many prior pressure lines we replay so a small model can still attend
+# to the freshest rings instead of drowning in a long trail.
+MAX_TRAIL_LINES = 10
 
 
 @dataclass(frozen=True)
@@ -65,8 +73,14 @@ class SpatialSession:
 def create_app():
     import gradio as gr
 
+    theme = gr.themes.Default(
+        font=("Georgia", "Times New Roman", "serif"),
+        font_mono=("ui-monospace", "SFMono-Regular", "Menlo", "monospace"),
+    )
+
     with gr.Blocks(
         title="Iris",
+        theme=theme,
         css=APP_CSS,
         js=APP_JS,
         analytics_enabled=False,
@@ -112,16 +126,32 @@ def run_canvas_engine(
 
         frame_id = str(request.get("frame_id", ""))
         idea = _required_text(request, "idea")
-        depth = _required_depth(request)
+        mode = str(request.get("mode", "pressures"))
         iterations = _idea_iterations(request.get("iterations", []))
         prior_cards = _pressure_cards(request.get("prior_cards", []))
         constraints = pressure_cards_to_constraints(prior_cards)
+        conversation = build_frame_conversation(iterations, prior_cards)
+        iris = engine or IrisEngine()
+
+        if mode == "finalize":
+            return _finalize_payload(
+                iris,
+                frame_id=frame_id,
+                current_idea=idea,
+                iterations=iterations,
+                prior_cards=prior_cards,
+                constraints=constraints,
+                conversation=conversation,
+            )
+
+        depth = _required_depth(request)
+        # The trail is replayed as real chat turns, so keep it out of the blob.
         frame_idea = build_frame_context(
             current_idea=idea,
             iterations=iterations,
             prior_cards=prior_cards,
+            include_trail=False,
         )
-        iris = engine or IrisEngine()
 
         total = max(depth + 1, RINGS)
         results = iris.pressure_directions(
@@ -130,6 +160,7 @@ def run_canvas_engine(
             depth,
             total,
             allow_soft_failures=True,
+            conversation=conversation,
         )
         payload: dict[str, Any] = {
             "ok": True,
@@ -150,11 +181,107 @@ def run_canvas_engine(
         return json.dumps({"ok": False, "message": str(exc)})
 
 
+def _finalize_payload(
+    iris: IrisEngine,
+    *,
+    frame_id: str,
+    current_idea: str,
+    iterations: list[dict[str, Any]],
+    prior_cards: list[dict[str, Any]],
+    constraints: list[str],
+    conversation: list[dict[str, str]],
+) -> str:
+    frame_idea = build_frame_context(
+        current_idea=current_idea,
+        iterations=iterations,
+        prior_cards=prior_cards,
+    )
+    brief: FinalBrief = iris.finalize(
+        frame_idea, constraints, conversation=conversation
+    )
+    journey = [
+        {"version": item.get("version"), "idea": item.get("idea")}
+        for item in iterations
+    ]
+    pressures = [
+        {
+            "depth": card.get("depth"),
+            "direction": card.get("direction"),
+            "pressure": card.get("pressure"),
+            "why_it_bites": card.get("why_it_bites"),
+        }
+        for card in prior_cards
+        if str(card.get("pressure", "")).strip()
+    ]
+    center = brief.center
+    payload: dict[str, Any] = {
+        "ok": True,
+        "kind": "final",
+        "frame_id": frame_id,
+        "refined_idea": brief.refined_idea,
+        "journey": journey,
+        "pressures": pressures,
+        "next_step": center.next_step if center else "",
+        "actor": center.actor if center else "",
+        "situation": center.situation if center else "",
+        "assumption_to_test": center.assumption_to_test if center else "",
+    }
+    return json.dumps(payload)
+
+
+def build_frame_conversation(
+    iterations: list[dict[str, Any]],
+    prior_cards: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Replay the frame as a real chat so the model sees its own prior pressures.
+
+    Each past idea iteration becomes a user turn, followed by an assistant turn
+    listing the pressures Iris already raised at that depth. This makes the model
+    treat the thread as one continuing, personalized conversation instead of a
+    cold one-shot prompt.
+    """
+
+    sets: dict[int, list[dict[str, Any]]] = {}
+    for card in prior_cards:
+        try:
+            depth = int(card.get("depth", 0))
+        except (TypeError, ValueError):
+            depth = 0
+        sets.setdefault(depth, []).append(card)
+
+    messages: list[dict[str, str]] = []
+    for item in iterations:
+        idea = str(item.get("idea", "")).strip()
+        if not idea:
+            continue
+        try:
+            version = int(item.get("version", 0))
+        except (TypeError, ValueError):
+            version = 0
+        messages.append({"role": "user", "content": f"My idea (v{version}): {idea}"})
+        lines = []
+        for card in sets.get(version, []):
+            pressure = str(card.get("pressure", "")).strip()
+            if not pressure:
+                continue
+            direction = str(card.get("direction", "")).strip()
+            lines.append(f"{direction}: {pressure}" if direction else pressure)
+        if lines:
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": "Pressure I already raised:\n" + "\n".join(lines),
+                }
+            )
+    return messages
+
+
 def build_frame_context(
     *,
     current_idea: str,
     iterations: list[dict[str, Any]],
     prior_cards: list[dict[str, Any]],
+    include_trail: bool = True,
 ) -> str:
     history: list[tuple[int, str]] = []
     for index, item in enumerate(iterations, start=1):
@@ -171,32 +298,49 @@ def build_frame_context(
         history.append((1, current_idea))
 
     original_idea = history[0][1]
+    latest_version = history[-1][0]
+    # Lead with the root idea so a small model anchors on it, then the live
+    # iteration it must pressure now. Headings are load-bearing: the engine
+    # grounding logic parses "Original idea:", "Current iteration:", and
+    # "Iteration history:" sections by exact heading.
     lines = [
         "Frame continuity:",
         (
-            "This is one continuous idea frame. The model must keep the root "
-            "idea, every user iteration, and the prior AI pressure trail in "
-            "view while pressuring the current iteration."
+            "This is ONE continuous idea frame. Keep the original idea and every "
+            "later refinement in view. Pressure the current iteration as the "
+            "newest, sharpest version of the SAME original idea - build on it, "
+            "never abandon the original idea, and never repeat an earlier "
+            "pressure."
         ),
-        "",
-        "Current iteration:",
-        current_idea,
         "",
         "Original idea:",
         original_idea,
         "",
+        "Current iteration:",
+        current_idea,
+        "",
         "Iteration history:",
     ]
     for version, idea in history:
-        lines.append(f"- Idea v{version}: {idea}")
+        marker = " (current)" if version == latest_version else ""
+        lines.append(f"- Idea v{version}: {idea}{marker}")
 
-    pressure_trail = _pressure_trail_lines(prior_cards)
+    # Cap the trail so the freshest pressure stays salient for a small model;
+    # keep the most recent entries (deepest rings) which matter most.
+    pressure_trail = _pressure_trail_lines(prior_cards) if include_trail else []
     if pressure_trail:
+        trimmed = pressure_trail[-MAX_TRAIL_LINES:]
+        if len(pressure_trail) > MAX_TRAIL_LINES:
+            trimmed = [
+                f"- (earlier pressure trimmed: {len(pressure_trail) - MAX_TRAIL_LINES} "
+                "older entries)",
+                *trimmed,
+            ]
         lines.extend(
             [
                 "",
                 "Prior AI pressure trail:",
-                *pressure_trail,
+                *trimmed,
             ]
         )
 
@@ -311,33 +455,48 @@ def _idea_iterations(value: Any) -> list[dict[str, Any]]:
 
 def render_interactive_canvas_html() -> str:
     return """
-<section class="iris-board status-ready" id="iris-board">
-  <header class="iris-boardbar" aria-label="Iris canvas header">
+<section class="iris-app status-ready" id="iris-board">
+  <aside class="iris-sidebar" aria-label="Iris ideas">
     <div class="iris-brand-block">
+      <span class="iris-aperture-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 3 L15.5 9 M21 12 L14 13 M16 20 L13 13.5 M3 12 L10 11 M8 4 L11 10.5"></path>
+          <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"></circle>
+        </svg>
+      </span>
       <strong>IRIS</strong>
-      <span>Pressure canvas</span>
+      <span class="iris-brand-sub">Pressure studio</span>
     </div>
-    <div class="iris-board-status" aria-label="Current canvas status">
-      <span id="iris-status-pill">Canvas ready.</span>
-      <span id="iris-frame-count">0 frames</span>
-      <span id="iris-zoom-label">100%</span>
+    <button type="button" class="iris-new-idea" data-action="new-frame">+ New idea</button>
+    <nav class="iris-frame-list" id="iris-frame-list" aria-label="Your ideas"></nav>
+    <div class="iris-sidebar-foot">
+      <span id="iris-frame-count">0 ideas</span>
+      <span>MiniCPM local</span>
     </div>
-    <div class="iris-board-tools" aria-label="Canvas controls">
-      <button type="button" data-action="pan-left" aria-label="Pan left">&larr;</button>
-      <button type="button" data-action="pan-up" aria-label="Pan up">&uarr;</button>
-      <button type="button" data-action="pan-down" aria-label="Pan down">&darr;</button>
-      <button type="button" data-action="pan-right" aria-label="Pan right">&rarr;</button>
-      <button type="button" data-action="zoom-out" aria-label="Zoom out">-</button>
-      <button type="button" data-action="zoom-reset" aria-label="Reset zoom">Reset</button>
-      <button type="button" data-action="focus-active" aria-label="Focus active frame">Focus</button>
-      <button type="button" data-action="zoom-in" aria-label="Zoom in">+</button>
+  </aside>
+  <main class="iris-main">
+    <header class="iris-mainbar">
+      <div class="iris-main-title">
+        <span id="iris-frame-kicker">No idea selected</span>
+        <strong id="iris-frame-name">Iris</strong>
+      </div>
+      <div class="iris-main-status">
+        <span id="iris-status-pill" role="status" aria-live="polite" aria-atomic="true">Ready.</span>
+        <span id="iris-depth-pill" aria-label="Ring depth"></span>
+        <button type="button" id="iris-finalize-btn" class="iris-finalize-btn" data-action="finalize" disabled>Finalize &amp; export</button>
+      </div>
+    </header>
+    <div class="iris-thread-scroll" id="iris-thread-scroll">
+      <div class="iris-thread" id="iris-thread"></div>
+      <div class="iris-empty-hint" id="iris-empty-hint">
+        <strong>Watch an idea sharpen under pressure.</strong>
+        <span>Click <b>+ New idea</b>, drop one fuzzy idea, and let Iris apply pressure.</span>
+        <span>Each idea becomes a scrolling thread. Switch ideas from the left rail.</span>
+      </div>
     </div>
-  </header>
-
-  <div class="iris-canvas-viewport" id="iris-canvas-viewport" aria-label="Iris idea canvas">
-    <div class="iris-canvas-grid" aria-hidden="true"></div>
-    <main class="iris-canvas-v2" id="iris-world"></main>
-  </div>
+  </main>
+  <div id="iris-print-root" class="iris-print-root" aria-hidden="true"></div>
 </section>
 """
 
@@ -675,18 +834,19 @@ def safe_class_token(value: str) -> str:
 APP_JS = r"""
 () => {
   const DIRECTIONS = ["Constraints", "Limitations", "Capabilities", "Reality Contact"];
-  const MIN_SCALE = 0.35;
-  const MAX_SCALE = 1.8;
-  const FRAME_WIDTH = 820;
 
   const board = document.getElementById("iris-board");
-  const viewport = document.getElementById("iris-canvas-viewport");
-  const world = document.getElementById("iris-world");
+  const frameList = document.getElementById("iris-frame-list");
+  const thread = document.getElementById("iris-thread");
+  const threadScroll = document.getElementById("iris-thread-scroll");
   const statusPill = document.getElementById("iris-status-pill");
+  const depthPill = document.getElementById("iris-depth-pill");
   const frameCount = document.getElementById("iris-frame-count");
-  const zoomLabel = document.getElementById("iris-zoom-label");
+  const frameKicker = document.getElementById("iris-frame-kicker");
+  const frameName = document.getElementById("iris-frame-name");
+  const finalizeBtn = document.getElementById("iris-finalize-btn");
 
-  if (!board || !viewport || !world || board.dataset.irisReady === "true") {
+  if (!board || !thread || board.dataset.irisReady === "true") {
     return;
   }
   board.dataset.irisReady = "true";
@@ -696,29 +856,77 @@ APP_JS = r"""
     nextFrameNumber: 1,
     nextEntryNumber: 1,
     activeFrameId: null,
-    pan: { x: 120, y: 92 },
-    scale: 1,
-    pointer: null,
-    suppressClickUntil: 0,
-    lastPointerCreateAt: 0,
-    lastDragAt: 0,
     pendingFocusId: null,
+    pendingScroll: false,
+    animatedIds: new Set(),
+    phaseTimer: null,
   };
+
+  const reduceMotion =
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const PRESSURE_PHASES = [
+    "Reading your idea…",
+    "Probing the soft spots…",
+    "Applying pressure…",
+    "Sharpening the edges…",
+  ];
+
+  function freshMark(id) {
+    if (state.animatedIds.has(id)) {
+      return "";
+    }
+    state.animatedIds.add(id);
+    return " is-fresh";
+  }
+
+  function stopPhaseTimer() {
+    if (state.phaseTimer) {
+      clearInterval(state.phaseTimer);
+      state.phaseTimer = null;
+    }
+  }
+
+  function startPhaseTimer() {
+    stopPhaseTimer();
+    if (reduceMotion) {
+      return;
+    }
+    let index = 0;
+    state.phaseTimer = setInterval(() => {
+      index = (index + 1) % PRESSURE_PHASES.length;
+      const node = thread.querySelector("[data-pressure-phase]");
+      if (node) {
+        node.textContent = PRESSURE_PHASES[index];
+      } else {
+        stopPhaseTimer();
+      }
+    }, 3200);
+  }
+
+  function scrollBehavior() {
+    return reduceMotion ? "auto" : "smooth";
+  }
 
   function frameById(frameId) {
     return state.frames.find((frame) => frame.id === frameId);
+  }
+
+  function activeFrame() {
+    return frameById(state.activeFrameId);
   }
 
   function entryById(frame, entryId) {
     return frame.entries.find((entry) => entry.id === entryId);
   }
 
-  function pressureEntries(frame) {
-    return pressureSets(frame).flatMap((entry) => entry.cards);
-  }
-
   function pressureSets(frame) {
     return frame.entries.filter((entry) => entry.type === "pressure_set");
+  }
+
+  function pressureEntries(frame) {
+    return pressureSets(frame).flatMap((entry) => entry.cards);
   }
 
   function ideaEntries(frame) {
@@ -735,142 +943,136 @@ APP_JS = r"""
     return id;
   }
 
-  function createFrame(worldX, worldY) {
+  function frameLabel(frame) {
+    const first = ideaEntries(frame).find((entry) => entry.value.trim());
+    const text = first ? first.value.trim() : "";
+    if (!text) {
+      return `Idea ${frame.number}`;
+    }
+    return text.length > 48 ? `${text.slice(0, 48).trim()}…` : text;
+  }
+
+  function setStatus(message) {
+    if (statusPill) {
+      statusPill.textContent = message;
+    }
+  }
+
+  function createFrame() {
     const number = state.nextFrameNumber;
     state.nextFrameNumber += 1;
     const entryId = makeEntryId();
     const frame = {
       id: `frame-${number}`,
       number,
-      x: Math.round(worldX - 140),
-      y: Math.round(worldY - 48),
       status: "editing",
       complete: false,
       entries: [
-        {
-          id: entryId,
-          type: "idea",
-          version: 1,
-          value: "",
-          locked: false,
-          error: "",
-        },
+        { id: entryId, type: "idea", version: 1, value: "", locked: false, error: "" },
       ],
     };
     state.frames.push(frame);
     state.activeFrameId = frame.id;
     state.pendingFocusId = entryId;
-    setStatus(`Frame ${number} ready.`);
+    state.pendingScroll = true;
+    setStatus(`Idea ${number} ready.`);
     render();
   }
 
-  function setStatus(message) {
-    statusPill.textContent = message;
-  }
-
-  function zoomAt(clientX, clientY, nextScale) {
-    const rect = viewport.getBoundingClientRect();
-    const scale = clamp(nextScale, MIN_SCALE, MAX_SCALE);
-    const worldX = (clientX - rect.left - state.pan.x) / state.scale;
-    const worldY = (clientY - rect.top - state.pan.y) / state.scale;
-    state.pan.x = clientX - rect.left - worldX * scale;
-    state.pan.y = clientY - rect.top - worldY * scale;
-    state.scale = scale;
-    renderTransform();
-  }
-
-  function panBy(deltaX, deltaY) {
-    state.pan.x += deltaX;
-    state.pan.y += deltaY;
-    renderTransform();
-  }
-
-  function resetView() {
-    state.scale = 1;
-    state.pan = { x: 120, y: 92 };
-    renderTransform();
-  }
-
-  function focusFrame(frameId = state.activeFrameId) {
-    const frame = frameById(frameId);
-    if (!frame) {
-      resetView();
+  function setActiveFrame(frameId) {
+    if (state.activeFrameId === frameId) {
       return;
     }
-    const rect = viewport.getBoundingClientRect();
-    const frameNode = world.querySelector(`[data-frame-id="${frame.id}"]`);
-    const frameHeight = frameNode ? frameNode.offsetHeight : 420;
-    const comfortableScale = clamp(
-      Math.min((rect.width - 96) / FRAME_WIDTH, (rect.height - 96) / frameHeight, 1.1),
-      0.42,
-      1.1,
-    );
-    state.scale = comfortableScale;
-    state.pan.x = rect.width / 2 - (frame.x + FRAME_WIDTH / 2) * state.scale;
-    state.pan.y = rect.height / 2 - (frame.y + frameHeight / 2) * state.scale;
-    renderTransform();
-  }
-
-  function clamp(value, min, max) {
-    return Math.min(Math.max(value, min), max);
-  }
-
-  function screenToWorld(clientX, clientY) {
-    const rect = viewport.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left - state.pan.x) / state.scale,
-      y: (clientY - rect.top - state.pan.y) / state.scale,
-    };
-  }
-
-  function renderTransform() {
-    world.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
-    viewport.style.setProperty("--iris-grid-x", `${state.pan.x}px`);
-    viewport.style.setProperty("--iris-grid-y", `${state.pan.y}px`);
-    viewport.style.setProperty("--iris-grid-size", `${24 * state.scale}px`);
-    zoomLabel.textContent = `${Math.round(state.scale * 100)}%`;
+    stopPhaseTimer();
+    state.activeFrameId = frameId;
+    render();
   }
 
   function render() {
-    world.innerHTML = state.frames.map(renderFrame).join("");
-    frameCount.textContent = `${state.frames.length} ${state.frames.length === 1 ? "frame" : "frames"}`;
-    renderTransform();
+    renderSidebar();
+    renderThread();
+    board.classList.toggle("is-empty", state.frames.length === 0);
+    if (frameCount) {
+      frameCount.textContent = `${state.frames.length} ${state.frames.length === 1 ? "idea" : "ideas"}`;
+    }
     if (state.pendingFocusId) {
       const focusId = state.pendingFocusId;
       state.pendingFocusId = null;
       window.requestAnimationFrame(() => {
-        const target = world.querySelector(`[data-entry-id="${focusId}"] textarea`);
+        const target = thread.querySelector(`[data-entry-id="${focusId}"] textarea`);
         if (target) {
           target.focus();
         }
       });
     }
+    if (state.pendingScroll) {
+      state.pendingScroll = false;
+      window.requestAnimationFrame(() => {
+        if (threadScroll) {
+          threadScroll.scrollTo({ top: threadScroll.scrollHeight, behavior: scrollBehavior() });
+        }
+      });
+    }
   }
 
-  function renderFrame(frame) {
+  function renderSidebar() {
+    frameList.innerHTML = state.frames
+      .map((frame) => {
+        const active = frame.id === state.activeFrameId ? " is-active" : "";
+        const depth = pressureSets(frame).length;
+        const badge = frame.complete ? "Done" : `D${String(depth).padStart(2, "0")}`;
+        return `
+          <button type="button" class="iris-frame-link${active}" data-frame-select="${escapeAttr(frame.id)}" aria-current="${frame.id === state.activeFrameId ? "page" : "false"}">
+            <span class="iris-frame-link-title">${escapeHtml(frameLabel(frame))}</span>
+            <span class="iris-frame-link-badge">${escapeHtml(badge)}</span>
+          </button>
+        `;
+      })
+      .join("");
+  }
+
+  function renderRingTracker(depth, complete) {
+    const total = 4;
+    const filled = Math.min(depth, total);
+    let dots = "";
+    for (let i = 0; i < total; i += 1) {
+      dots += `<span class="iris-ring-dot${i < filled ? " is-on" : ""}"></span>`;
+    }
+    const center = `<span class="iris-ring-center${complete ? " is-on" : ""}"></span>`;
+    const label = complete
+      ? "Sharpened to a point"
+      : depth < 1
+        ? "Ring 00"
+        : `Ring ${String(depth).padStart(2, "0")} · pulling toward center`;
+    return `<span class="iris-ring" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">${dots}${center}</span>`;
+  }
+
+  function renderThread() {
+    const frame = activeFrame();
+    if (!frame) {
+      thread.innerHTML = "";
+      if (frameKicker) frameKicker.textContent = "No idea selected";
+      if (frameName) frameName.textContent = "Iris";
+      if (depthPill) depthPill.innerHTML = renderRingTracker(0, false);
+      if (finalizeBtn) finalizeBtn.disabled = true;
+      return;
+    }
     const depth = pressureSets(frame).length;
-    const status = frame.complete ? "Complete" : frame.status === "thinking" ? "Thinking" : "Ready";
-    const activeClass = frame.id === state.activeFrameId ? " is-active" : "";
-    return `
-      <section class="iris-frame${activeClass}" data-frame-id="${escapeAttr(frame.id)}" style="transform: translate(${frame.x}px, ${frame.y}px);">
-        <header class="iris-frame-header" data-frame-drag="true" data-frame-id="${escapeAttr(frame.id)}" title="Drag frame">
-          <div>
-            <span>Idea frame</span>
-            <strong>Frame ${frame.number}</strong>
-          </div>
-          <div class="iris-frame-badges">
-            <span>Depth ${String(depth).padStart(2, "0")}</span>
-            <span>${escapeHtml(status)}</span>
-          </div>
-        </header>
-        <div class="iris-stack">
-          ${renderStack(frame)}
-        </div>
-      </section>
-    `;
+    if (frameKicker) frameKicker.textContent = `Idea frame ${String(frame.number).padStart(2, "0")}`;
+    if (frameName) frameName.textContent = frameLabel(frame);
+    if (depthPill) depthPill.innerHTML = renderRingTracker(depth, frame.complete);
+    if (finalizeBtn) {
+      finalizeBtn.disabled =
+        depth < 1 || frame.complete || frame.status === "thinking";
+      finalizeBtn.textContent = frame.complete ? "Finalized" : "Finalize & export";
+    }
+    if (statusPill) {
+      statusPill.classList.toggle("is-thinking", frame.status === "thinking");
+    }
+    thread.innerHTML = renderThreadEntries(frame);
   }
 
-  function renderStack(frame) {
+  function renderThreadEntries(frame) {
     const parts = [];
     frame.entries.forEach((entry, index) => {
       if (index > 0) {
@@ -888,6 +1090,12 @@ APP_JS = r"""
     if (entry.type === "center") {
       return "Center";
     }
+    if (entry.type === "final") {
+      return "Final version";
+    }
+    if (entry.type === "finalizing") {
+      return "Final version";
+    }
     return "AI pressure";
   }
 
@@ -904,29 +1112,92 @@ APP_JS = r"""
     if (entry.type === "loading") {
       return renderLoadingEntry(entry);
     }
+    if (entry.type === "final") {
+      return renderFinalEntry(frame, entry);
+    }
+    if (entry.type === "finalizing") {
+      return renderFinalizingEntry();
+    }
     if (entry.type === "error") {
       return renderErrorEntry(entry);
     }
     return "";
   }
 
+  function renderFinalizingEntry() {
+    return `
+      <article class="iris-card iris-card-final is-pending">
+        <div class="iris-card-kicker">
+          <span>Final version</span>
+          <span>Composing</span>
+        </div>
+        <h3>Composing the final brief…</h3>
+        <p>MiniCPM is distilling everything you pressured into one sharp summary.</p>
+        <i aria-hidden="true"></i>
+      </article>
+    `;
+  }
+
+  function renderFinalEntry(frame, entry) {
+    const journey = (entry.journey || [])
+      .filter((step) => step.idea)
+      .map(
+        (step) => `<li><span>v${escapeHtml(String(step.version))}</span> ${escapeHtml(step.idea)}</li>`,
+      )
+      .join("");
+    const pressures = (entry.pressures || [])
+      .filter((card) => card.pressure)
+      .map(
+        (card) =>
+          `<li><span>${escapeHtml(card.direction || "Pressure")}</span> ${escapeHtml(card.pressure)}</li>`,
+      )
+      .join("");
+    const nextStep = entry.next_step
+      ? `<section class="iris-final-block"><h4>One concrete next step</h4><p>${escapeHtml(entry.next_step)}</p></section>`
+      : "";
+    return `
+      <article class="iris-card iris-card-final${freshMark(entry.id)}" data-entry-id="${escapeAttr(entry.id)}">
+        <div class="iris-card-kicker">
+          <span>Final version</span>
+          <span>${escapeHtml(frameLabel(frame))}</span>
+        </div>
+        <h3>${escapeHtml(entry.refined_idea)}</h3>
+        ${journey ? `<section class="iris-final-block"><h4>How the idea sharpened</h4><ol class="iris-final-journey">${journey}</ol></section>` : ""}
+        ${pressures ? `<section class="iris-final-block"><h4>Pressure it faced</h4><ul class="iris-final-pressures">${pressures}</ul></section>` : ""}
+        ${nextStep}
+        <div class="iris-card-actions">
+          <button type="button" data-action="download-pdf" data-frame-id="${escapeAttr(frame.id)}">Save PDF</button>
+        </div>
+      </article>
+    `;
+  }
+
   function renderIdeaEntry(frame, entry) {
     const disabled = entry.locked || frame.status === "thinking" || frame.complete;
     const error = entry.error ? `<p class="iris-entry-error">${escapeHtml(entry.error)}</p>` : "";
     const buttonDisabled = disabled ? "disabled" : "";
+    const placeholder =
+      entry.version === 1
+        ? "e.g. an app that helps people remember names"
+        : "Sharpen it — rewrite the idea after the pressure…";
     const body = entry.locked
       ? `<p>${escapeHtml(entry.value)}</p>`
-      : `<textarea data-frame-id="${escapeAttr(frame.id)}" data-entry-id="${escapeAttr(entry.id)}" rows="4" placeholder="Type the idea...">${escapeHtml(entry.value)}</textarea>`;
+      : `<textarea data-frame-id="${escapeAttr(frame.id)}" data-entry-id="${escapeAttr(entry.id)}" rows="4" aria-label="Idea version ${entry.version}" placeholder="${escapeAttr(placeholder)}">${escapeHtml(entry.value)}</textarea>`;
+    const label = entry.version === 1 ? "Apply pressure" : "Sharpen again";
     const action = entry.locked
       ? ""
-      : `<button type="button" data-action="proceed" data-frame-id="${escapeAttr(frame.id)}" data-entry-id="${escapeAttr(entry.id)}" ${buttonDisabled}>Proceed</button>`;
-
+      : `<button type="button" data-action="proceed" data-frame-id="${escapeAttr(frame.id)}" data-entry-id="${escapeAttr(entry.id)}" ${buttonDisabled}>${label}</button>`;
+    const teach =
+      entry.version === 1 && !entry.locked
+        ? `<p class="iris-card-teach">Drop one fuzzy idea. Iris hits it with 4 sharp questions &mdash; <b>Constraints</b>, <b>Limitations</b>, <b>Capabilities</b>, <b>Reality&nbsp;Contact</b> &mdash; then you sharpen it and go again.</p>`
+        : "";
     return `
-      <article class="iris-card iris-card-idea${entry.locked ? " is-locked" : " is-editing"}" data-entry-id="${escapeAttr(entry.id)}">
+      <article class="iris-card iris-card-idea${entry.locked ? " is-locked" : " is-editing"}${freshMark(entry.id)}" data-entry-id="${escapeAttr(entry.id)}">
         <div class="iris-card-kicker">
           <span>Idea v${entry.version}</span>
-          <span>User card</span>
+          <span>${entry.locked ? "Your idea" : "Your turn"}</span>
         </div>
+        ${teach}
         ${body}
         ${error}
         <div class="iris-card-actions">${action}</div>
@@ -935,18 +1206,19 @@ APP_JS = r"""
   }
 
   function renderPressureSetEntry(entry) {
+    const fresh = freshMark(entry.id) ? "is-fresh" : "";
     return `
       <div class="iris-pressure-set" data-entry-id="${escapeAttr(entry.id)}">
         <div class="iris-pressure-grid">
-          ${entry.cards.map((card) => renderPressureEntry(card)).join("")}
+          ${entry.cards.map((card, index) => renderPressureEntry(card, index, fresh)).join("")}
         </div>
       </div>
     `;
   }
 
-  function renderPressureEntry(card) {
+  function renderPressureEntry(card, index, fresh) {
     return `
-      <article class="iris-card iris-card-ai">
+      <article class="iris-card iris-card-ai ${fresh}" style="--i:${index}">
         <div class="iris-card-kicker">
           <span>AI pressure</span>
           <span>${escapeHtml(card.direction || "Direction")}</span>
@@ -959,7 +1231,7 @@ APP_JS = r"""
 
   function renderCenterEntry(entry) {
     return `
-      <article class="iris-card iris-card-center" data-entry-id="${escapeAttr(entry.id)}">
+      <article class="iris-card iris-card-center${freshMark(entry.id)}" data-entry-id="${escapeAttr(entry.id)}">
         <div class="iris-card-kicker">
           <span>Center</span>
           <span>Next step</span>
@@ -976,7 +1248,12 @@ APP_JS = r"""
 
   function renderLoadingEntry(entry) {
     return `
-      <div class="iris-pressure-set is-pending" data-entry-id="${escapeAttr(entry.id)}">
+      <div class="iris-pressure-set is-pending" data-entry-id="${escapeAttr(entry.id)}" aria-busy="true">
+        <span class="sr-only">Applying pressure. This can take 15 to 25 seconds.</span>
+        <div class="iris-pressure-build">
+          <span class="iris-pressure-track"><span class="iris-pressure-fill"></span></span>
+          <em data-pressure-phase>${escapeHtml(PRESSURE_PHASES[0])}</em>
+        </div>
         <div class="iris-pressure-grid">
           ${DIRECTIONS.map((direction) => `
             <article class="iris-card iris-card-ai is-pending">
@@ -984,8 +1261,8 @@ APP_JS = r"""
                 <span>AI pressure</span>
                 <span>${escapeHtml(direction)}</span>
               </div>
-              <h3>${escapeHtml(direction)} forming</h3>
-              <p>MiniCPM is applying pressure.</p>
+              <h3>${escapeHtml(direction)}</h3>
+              <p>Forming under pressure…</p>
               <i aria-hidden="true"></i>
             </article>
           `).join("")}
@@ -996,12 +1273,12 @@ APP_JS = r"""
 
   function renderErrorEntry(entry) {
     return `
-      <article class="iris-card iris-card-error" data-entry-id="${escapeAttr(entry.id)}">
+      <article class="iris-card iris-card-error${freshMark(entry.id)}" data-entry-id="${escapeAttr(entry.id)}" role="alert">
         <div class="iris-card-kicker">
           <span>Engine</span>
           <span>Retry needed</span>
         </div>
-        <h3>Model call did not complete.</h3>
+        <h3>The local model didn't land a clean answer.</h3>
         <p>${escapeHtml(entry.message)}</p>
       </article>
     `;
@@ -1031,25 +1308,206 @@ APP_JS = r"""
       render();
       return;
     }
-
     const depth = nextDepth(frame);
     entry.value = value;
     entry.locked = true;
     entry.error = "";
     frame.status = "thinking";
     const loadingId = makeEntryId();
-    frame.entries.push({
-      id: loadingId,
-      type: "loading",
-      depth,
-    });
+    frame.entries.push({ id: loadingId, type: "loading", depth });
     state.activeFrameId = frame.id;
-    setStatus(`Frame ${frame.number}: MiniCPM thinking.`);
+    state.pendingScroll = true;
+    setStatus(`Idea ${frame.number}: applying pressure…`);
     render();
+    startPhaseTimer();
 
     callEngine(buildEnginePayload(frame, value, depth))
       .then((response) => applyEngineResponse(frame.id, loadingId, response))
       .catch((error) => applyEngineError(frame.id, loadingId, entry.id, error));
+  }
+
+  function finalize(frameId) {
+    const frame = frameById(frameId);
+    if (!frame || frame.status === "thinking" || frame.complete) {
+      return;
+    }
+    if (pressureSets(frame).length < 1) {
+      setStatus("Apply pressure at least once before finalizing.");
+      return;
+    }
+    const lastIdea = ideaEntries(frame)
+      .filter((entry) => entry.value.trim())
+      .slice(-1)[0];
+    const ideaText = lastIdea ? lastIdea.value.trim() : frameLabel(frame);
+    frame.status = "thinking";
+    const finalizingId = makeEntryId();
+    frame.entries.push({ id: finalizingId, type: "finalizing" });
+    state.pendingScroll = true;
+    setStatus(`Idea ${frame.number}: composing final brief…`);
+    render();
+
+    const payload = {
+      frame_id: frame.id,
+      mode: "finalize",
+      idea: ideaText,
+      iterations: ideaEntries(frame)
+        .filter((entry) => entry.value.trim())
+        .map((entry) => ({ version: entry.version, idea: entry.value.trim() })),
+      prior_cards: pressureEntries(frame).map((card) => ({
+        depth: card.depth,
+        direction: card.direction,
+        pressure: card.pressure,
+        why_it_bites: card.why_it_bites,
+      })),
+    };
+
+    callEngine(payload)
+      .then((response) => applyFinalResponse(frame.id, finalizingId, response))
+      .catch((error) => applyEngineError(frame.id, finalizingId, null, error));
+  }
+
+  function applyFinalResponse(frameId, finalizingId, response) {
+    stopPhaseTimer();
+    const frame = frameById(frameId);
+    if (!frame) {
+      return;
+    }
+    const index = frame.entries.findIndex((entry) => entry.id === finalizingId);
+    if (index < 0) {
+      return;
+    }
+    // Drop the trailing empty idea card, if any, so the brief is the last word.
+    const tail = frame.entries[frame.entries.length - 1];
+    frame.entries.splice(index, 1, {
+      id: finalizingId,
+      type: "final",
+      refined_idea: response.refined_idea || frameLabel(frame),
+      journey: response.journey || [],
+      pressures: response.pressures || [],
+      next_step: response.next_step || "",
+      actor: response.actor || "",
+      situation: response.situation || "",
+      assumption_to_test: response.assumption_to_test || "",
+    });
+    frame.entries = frame.entries.filter(
+      (entry) => !(entry.type === "idea" && !entry.value.trim()),
+    );
+    frame.status = "complete";
+    frame.complete = true;
+    state.pendingScroll = true;
+    setStatus(`Idea ${frame.number}: final version ready.`);
+    render();
+  }
+
+  function downloadPdf(frameId) {
+    const frame = frameById(frameId);
+    if (!frame) {
+      return;
+    }
+    const final = frame.entries.find((entry) => entry.type === "final");
+    if (!final) {
+      return;
+    }
+    printFallback(frame, final);
+  }
+
+  function printFallback(frame, final) {
+    const printRoot = document.getElementById("iris-print-root");
+    if (!printRoot) {
+      return;
+    }
+    printRoot.innerHTML = buildPdfDoc(frame, final);
+    document.body.classList.add("iris-printing");
+    const cleanup = () => {
+      document.body.classList.remove("iris-printing");
+      printRoot.innerHTML = "";
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    setStatus("Choose Save as PDF in the print dialog.");
+    window.requestAnimationFrame(() => window.print());
+  }
+
+  function buildPdfDoc(frame, final) {
+    const ink = "#1d1813";
+    const inkSoft = "#574d41";
+    const inkFaint = "#8a7f6f";
+    const accent = "#aa3328";
+    const rule = "#cdc3ad";
+    const paper = "#f3efe4";
+    const serif = "Georgia, 'Times New Roman', serif";
+    const body = "Georgia, 'Times New Roman', serif";
+    const mono = "ui-monospace, 'SFMono-Regular', Menlo, monospace";
+    const steps = (final.journey || []).filter((step) => step.idea);
+    const subtitle = steps.length
+      ? `Sharpened through ${steps.length} iteration${steps.length === 1 ? "" : "s"} of pressure`
+      : "Sharpened under pressure";
+    const journey = steps
+      .map(
+        (step, index) => `
+          <div style="display:grid; grid-template-columns:34px 1fr; gap:12px; padding:9px 0; border-top:1px solid ${rule};">
+            <span style="font-family:${mono}; font-size:10px; letter-spacing:0.06em; color:${accent};">v${escapeHtml(String(step.version))}</span>
+            <p style="margin:0; font-family:${body}; font-size:13px; line-height:1.5; color:${inkSoft};">${escapeHtml(step.idea)}${index === steps.length - 1 ? ` <span style="font-style:italic; color:${ink};">&mdash; where it landed</span>` : ""}</p>
+          </div>`,
+      )
+      .join("");
+    const pressures = (final.pressures || [])
+      .filter((card) => card.pressure)
+      .slice(0, 6)
+      .map(
+        (card, index) => `
+          <div style="display:grid; grid-template-columns:34px 1fr; gap:12px; padding:9px 0; border-top:1px solid ${rule};">
+            <span style="font-family:${serif}; font-size:18px; font-weight:500; line-height:1; color:${accent};">${index + 1}</span>
+            <div>
+              <div style="font-family:${mono}; font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:${accent}; margin-bottom:4px;">${escapeHtml(card.direction || "Pressure")}</div>
+              <p style="margin:0; font-family:${serif}; font-size:14px; font-weight:500; line-height:1.4; color:${ink};">${escapeHtml(card.pressure)}</p>
+            </div>
+          </div>`,
+      )
+      .join("");
+    const next = final.next_step
+      ? `
+        <div style="margin:30px 0 4px; padding:0 0 0 18px; border-left:3px solid ${accent};">
+          <div style="font-family:${mono}; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:${accent}; margin-bottom:9px;">The one thing to test next</div>
+          <p style="margin:0; font-family:${serif}; font-size:20px; font-weight:500; font-style:italic; line-height:1.4; color:${ink};">${escapeHtml(final.next_step)}</p>
+        </div>`
+      : "";
+    let dateLabel = "";
+    try {
+      dateLabel = new Date().toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    } catch (_error) {
+      dateLabel = "";
+    }
+    return `
+      <div style="width:794px; min-height:1123px; box-sizing:border-box; display:flex; flex-direction:column; padding:66px 70px 44px; background:${paper}; color:${ink}; font-synthesis:none;">
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; padding-bottom:14px; border-bottom:2px solid ${ink};">
+          <span style="font-family:${serif}; font-size:26px; font-weight:600; letter-spacing:0.01em; color:${ink};">Iris</span>
+          <span style="font-family:${mono}; font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:${inkFaint};">Idea Brief</span>
+        </div>
+        <div style="font-family:${mono}; font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:${accent}; margin:34px 0 16px;">The idea, after pressure</div>
+        <h1 style="margin:0; font-family:${serif}; font-size:38px; font-weight:600; line-height:1.16; letter-spacing:-0.015em; color:${ink};">${escapeHtml(final.refined_idea)}</h1>
+        <p style="margin:18px 0 0; font-family:${body}; font-style:italic; font-size:14px; color:${inkSoft};">${escapeHtml(subtitle)}</p>
+        ${next}
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:36px; margin-top:34px;">
+          <div>
+            <div style="font-family:${mono}; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:${inkFaint}; margin-bottom:6px;">How it sharpened</div>
+            ${journey || `<p style="font-family:${body}; font-size:13px; color:${inkSoft};">A single sharp idea.</p>`}
+          </div>
+          <div>
+            <div style="font-family:${mono}; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:${inkFaint}; margin-bottom:6px;">Pressure it survived</div>
+            ${pressures || `<p style="font-family:${body}; font-size:13px; color:${inkSoft};">Pressure-tested and standing.</p>`}
+          </div>
+        </div>
+        <div style="margin-top:auto; padding-top:22px; display:flex; justify-content:space-between; align-items:center; border-top:1px solid ${rule}; font-family:${mono}; font-size:9px; letter-spacing:0.08em; text-transform:uppercase; color:${inkFaint};">
+          <span>Pressured into shape with Iris &middot; MiniCPM, run locally</span>
+          <span>${escapeHtml(dateLabel)}</span>
+        </div>
+      </div>
+    `;
   }
 
   function buildEnginePayload(frame, idea, depth) {
@@ -1071,28 +1529,43 @@ APP_JS = r"""
 
   async function callEngine(payload) {
     const endpoint = `${window.location.origin}/gradio_api/call/iris_canvas_engine`;
-    const start = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: [JSON.stringify(payload)] }),
-    });
-    if (!start.ok) {
-      throw new Error(`Gradio API returned HTTP ${start.status}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+    try {
+      const start = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: [JSON.stringify(payload)] }),
+        signal: controller.signal,
+      });
+      if (!start.ok) {
+        throw new Error(`Gradio API returned HTTP ${start.status}`);
+      }
+      const startJson = await start.json();
+      if (startJson.data) {
+        return parseEnginePayload(startJson.data[0]);
+      }
+      if (!startJson.event_id) {
+        throw new Error("Gradio API did not return an event id.");
+      }
+      const result = await fetch(`${endpoint}/${startJson.event_id}`, {
+        signal: controller.signal,
+      });
+      if (!result.ok) {
+        throw new Error(`Gradio event returned HTTP ${result.status}`);
+      }
+      const eventText = await result.text();
+      return parseGradioEventText(eventText);
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        throw new Error(
+          "The local model took too long (over 90s). It may be overloaded — try again.",
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    const startJson = await start.json();
-    if (startJson.data) {
-      return parseEnginePayload(startJson.data[0]);
-    }
-    if (!startJson.event_id) {
-      throw new Error("Gradio API did not return an event id.");
-    }
-
-    const result = await fetch(`${endpoint}/${startJson.event_id}`);
-    if (!result.ok) {
-      throw new Error(`Gradio event returned HTTP ${result.status}`);
-    }
-    const eventText = await result.text();
-    return parseGradioEventText(eventText);
   }
 
   function parseGradioEventText(text) {
@@ -1143,6 +1616,7 @@ APP_JS = r"""
   }
 
   function applyEngineResponse(frameId, loadingId, response) {
+    stopPhaseTimer();
     const frame = frameById(frameId);
     if (!frame) {
       return;
@@ -1151,7 +1625,6 @@ APP_JS = r"""
     if (loadingIndex < 0) {
       return;
     }
-
     if (response.kind === "pressures") {
       frame.entries.splice(loadingIndex, 1, {
         id: loadingId,
@@ -1175,11 +1648,11 @@ APP_JS = r"""
       });
       frame.status = "editing";
       state.pendingFocusId = nextIdeaId;
-      setStatus(`Frame ${frame.number}: 4 pressures returned.`);
+      state.pendingScroll = true;
+      setStatus(`Idea ${frame.number}: 4 pressures returned.`);
       render();
       return;
     }
-
     if (response.kind === "center") {
       frame.entries.splice(loadingIndex, 1, {
         id: loadingId,
@@ -1192,12 +1665,14 @@ APP_JS = r"""
       });
       frame.status = "complete";
       frame.complete = true;
-      setStatus(`Frame ${frame.number}: center reached.`);
+      state.pendingScroll = true;
+      setStatus(`Idea ${frame.number}: center reached.`);
       render();
     }
   }
 
   function applyEngineError(frameId, loadingId, ideaEntryId, error) {
+    stopPhaseTimer();
     const frame = frameById(frameId);
     if (!frame) {
       return;
@@ -1217,7 +1692,7 @@ APP_JS = r"""
       state.pendingFocusId = ideaEntry.id;
     }
     frame.status = "error";
-    setStatus(`Frame ${frame.number}: model call failed.`);
+    setStatus(`Idea ${frame.number}: model call failed.`);
     render();
   }
 
@@ -1234,163 +1709,12 @@ APP_JS = r"""
     return escapeHtml(value).replace(/`/g, "&#96;");
   }
 
-  function isFormTarget(target) {
-    if (!(target instanceof Element)) {
-      return false;
-    }
-    return Boolean(target.closest("textarea, input, button, select, a, [contenteditable='true']"));
-  }
-
-  function beginPan(event) {
-    viewport.setPointerCapture(event.pointerId);
-    state.pointer = {
-      mode: "pan",
-      id: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-      panX: state.pan.x,
-      panY: state.pan.y,
-      dragged: false,
-    };
-    viewport.classList.add("is-panning");
-  }
-
-  function beginFrameDrag(event, frameId) {
-    const frame = frameById(frameId);
-    if (!frame) {
-      return;
-    }
-    viewport.setPointerCapture(event.pointerId);
-    state.activeFrameId = frame.id;
-    state.pointer = {
-      mode: "frame",
-      id: event.pointerId,
-      frameId: frame.id,
-      x: event.clientX,
-      y: event.clientY,
-      frameX: frame.x,
-      frameY: frame.y,
-      dragged: false,
-    };
-    viewport.classList.add("is-frame-dragging");
-    render();
-  }
-
-  function finishPointer(event) {
-    const pointer = state.pointer;
-    if (!pointer || pointer.id !== event.pointerId) {
-      return null;
-    }
-    state.pointer = null;
-    viewport.classList.remove("is-panning", "is-frame-dragging");
-    if (pointer.dragged) {
-      state.lastDragAt = Date.now();
-      state.suppressClickUntil = Date.now() + 300;
-    }
-    return pointer;
-  }
-
-  viewport.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || event.target.closest(".iris-board-tools") || isFormTarget(event.target)) {
-      return;
-    }
-    const frameHeader = event.target.closest("[data-frame-drag='true']");
-    if (frameHeader) {
-      event.preventDefault();
-      beginFrameDrag(event, frameHeader.dataset.frameId);
-      return;
-    }
-    if (!event.target.closest(".iris-frame")) {
-      beginPan(event);
-    }
-  });
-
-  viewport.addEventListener("pointermove", (event) => {
-    const pointer = state.pointer;
-    if (!pointer || pointer.id !== event.pointerId) {
-      return;
-    }
-    const dx = event.clientX - pointer.x;
-    const dy = event.clientY - pointer.y;
-    if (Math.hypot(dx, dy) > 4) {
-      pointer.dragged = true;
-    }
-    if (pointer.dragged && pointer.mode === "pan") {
-      state.pan.x = pointer.panX + dx;
-      state.pan.y = pointer.panY + dy;
-      renderTransform();
-    }
-    if (pointer.dragged && pointer.mode === "frame") {
-      const frame = frameById(pointer.frameId);
-      if (!frame) {
-        return;
-      }
-      frame.x = Math.round(pointer.frameX + dx / state.scale);
-      frame.y = Math.round(pointer.frameY + dy / state.scale);
-      const frameNode = world.querySelector(`[data-frame-id="${frame.id}"]`);
-      if (frameNode) {
-        frameNode.style.transform = `translate(${frame.x}px, ${frame.y}px)`;
-      }
-    }
-  });
-
-  viewport.addEventListener("pointerup", (event) => {
-    const pointer = finishPointer(event);
-    if (!pointer) {
-      return;
-    }
-    if (pointer.mode === "frame") {
-      render();
-      return;
-    }
-    if (pointer.dragged) {
-      return;
-    }
-    if (pointer.mode === "pan" && !event.target.closest(".iris-frame")) {
-      const point = screenToWorld(event.clientX, event.clientY);
-      state.lastPointerCreateAt = Date.now();
-      createFrame(point.x, point.y);
-    }
-  });
-
-  viewport.addEventListener("pointercancel", (event) => {
-    finishPointer(event);
-  });
-
-  viewport.addEventListener("click", (event) => {
-    if (event.target.closest(".iris-frame") || event.target.closest(".iris-board-tools")) {
-      return;
-    }
-    if (Date.now() < state.suppressClickUntil) {
-      return;
-    }
-    if (Date.now() - state.lastPointerCreateAt < 250) {
-      return;
-    }
-    if (Date.now() - state.lastDragAt < 250) {
-      return;
-    }
-    const point = screenToWorld(event.clientX, event.clientY);
-    createFrame(point.x, point.y);
-  });
-
-  viewport.addEventListener("wheel", (event) => {
-    if (isFormTarget(event.target) && !(event.ctrlKey || event.metaKey)) {
-      return;
-    }
-    event.preventDefault();
-    if (event.ctrlKey || event.metaKey) {
-      zoomAt(event.clientX, event.clientY, state.scale * Math.exp(-event.deltaY * 0.002));
-      return;
-    }
-    if (event.altKey) {
-      zoomAt(event.clientX, event.clientY, state.scale * Math.exp(-event.deltaY * 0.003));
-      return;
-    }
-    panBy(-event.deltaX, -event.deltaY);
-  }, { passive: false });
-
   document.addEventListener("click", (event) => {
+    const select = event.target.closest("[data-frame-select]");
+    if (select) {
+      setActiveFrame(select.dataset.frameSelect);
+      return;
+    }
     const button = event.target.closest("[data-action]");
     if (!button) {
       return;
@@ -1401,32 +1725,18 @@ APP_JS = r"""
       proceed(button.dataset.frameId, button.dataset.entryId);
       return;
     }
-    const rect = viewport.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    if (action === "zoom-in") {
-      zoomAt(centerX, centerY, state.scale * 1.14);
+    if (action === "new-frame") {
+      createFrame();
+      return;
     }
-    if (action === "zoom-out") {
-      zoomAt(centerX, centerY, state.scale * 0.86);
+    if (action === "finalize") {
+      event.preventDefault();
+      finalize(button.dataset.frameId || state.activeFrameId);
+      return;
     }
-    if (action === "zoom-reset") {
-      resetView();
-    }
-    if (action === "focus-active") {
-      focusFrame();
-    }
-    if (action === "pan-left") {
-      panBy(96, 0);
-    }
-    if (action === "pan-right") {
-      panBy(-96, 0);
-    }
-    if (action === "pan-up") {
-      panBy(0, 96);
-    }
-    if (action === "pan-down") {
-      panBy(0, -96);
+    if (action === "download-pdf") {
+      event.preventDefault();
+      downloadPdf(button.dataset.frameId || state.activeFrameId);
     }
   });
 
@@ -1445,77 +1755,78 @@ APP_JS = r"""
     }
     entry.value = target.value;
     entry.error = "";
+    const link = frameList.querySelector(`[data-frame-select="${frame.id}"] .iris-frame-link-title`);
+    if (link) {
+      link.textContent = frameLabel(frame);
+    }
+    if (frame.id === state.activeFrameId && frameName) {
+      frameName.textContent = frameLabel(frame);
+    }
   });
 
   document.addEventListener("keydown", (event) => {
     const target = event.target;
-    if (target instanceof HTMLTextAreaElement && (event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    if (
+      target instanceof HTMLTextAreaElement &&
+      (event.metaKey || event.ctrlKey) &&
+      event.key === "Enter"
+    ) {
       event.preventDefault();
       proceed(target.dataset.frameId, target.dataset.entryId);
-      return;
-    }
-    if (target instanceof HTMLTextAreaElement) {
-      return;
-    }
-    const rect = viewport.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    if (event.key === "+" || event.key === "=") {
-      event.preventDefault();
-      zoomAt(centerX, centerY, state.scale * 1.12);
-    }
-    if (event.key === "-" || event.key === "_") {
-      event.preventDefault();
-      zoomAt(centerX, centerY, state.scale * 0.88);
-    }
-    if (event.key === "0") {
-      event.preventDefault();
-      resetView();
-    }
-    if (event.key === "f" || event.key === "F") {
-      event.preventDefault();
-      focusFrame();
     }
   });
 
-  render();
+  // Land the user straight in a focused idea, not a dead empty screen.
+  if (state.frames.length === 0) {
+    createFrame();
+  } else {
+    render();
+  }
 }
 """
 
 
 APP_CSS = """
 :root {
-  --iris-ink: #07090d;
-  --iris-canvas: #0c1117;
-  --iris-frame: rgba(18, 24, 31, 0.84);
-  --iris-frame-line: rgba(154, 171, 188, 0.24);
-  --iris-card-light: #f4f0e8;
-  --iris-card-cream: #fffaf0;
-  --iris-card-dark: #111923;
-  --iris-card-darker: #0d141d;
-  --iris-text: #f2f6f8;
-  --iris-ink-text: #17202a;
-  --iris-muted: #aeb9c4;
-  --iris-muted-strong: #687887;
-  --iris-cyan: #66d9d7;
-  --iris-lime: #b7e37b;
-  --iris-amber: #e9b949;
-  --iris-rose: #dc7bd2;
-  --iris-danger: #ffb4ab;
-  --iris-shadow: rgba(0, 0, 0, 0.36);
+  --paper: #f3efe4;
+  --paper-2: #ece6d8;
+  --paper-3: #e4ddcb;
+  --ink: #1d1813;
+  --ink-soft: #574d41;
+  --ink-faint: #8a7f6f;
+  --rule: #cdc3ad;
+  --rule-strong: #b3a78d;
+  --accent: #aa3328;
+  --accent-deep: #842318;
+
+  --serif: Georgia, "Times New Roman", serif;
+  --body: Georgia, "Times New Roman", serif;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, monospace;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --d-fast: 0.16s;
+  --d-mid: 0.4s;
+
+  --iris-sidebar-w: 290px;
 }
 
 * {
   box-sizing: border-box;
-  letter-spacing: 0;
+}
+
+/* Force the light/paper theme even when the OS is in dark mode, and override
+   Gradio's themed text-color variables so buttons/spans inherit ink, not white. */
+html {
+  color-scheme: light;
 }
 
 body,
 .gradio-container {
   margin: 0 !important;
-  background: var(--iris-ink) !important;
-  color: var(--iris-text) !important;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+  font-family: var(--body) !important;
+  font-synthesis: none;
 }
 
 .gradio-container {
@@ -1523,6 +1834,40 @@ body,
   max-width: none !important;
   min-height: 100vh !important;
   padding: 0 !important;
+  --body-text-color: #1d1813 !important;
+  --body-text-color-subdued: #574d41 !important;
+  --button-secondary-text-color: #1d1813 !important;
+  --button-secondary-text-color-hover: #1d1813 !important;
+  --link-text-color: #aa3328 !important;
+  --block-title-text-color: #1d1813 !important;
+  --color-accent: #aa3328 !important;
+}
+
+#iris-board .iris-frame-link {
+  color: var(--ink-soft);
+}
+
+#iris-board .iris-frame-link-title {
+  color: inherit;
+}
+
+#iris-board .iris-frame-link.is-active,
+#iris-board .iris-frame-link.is-active .iris-frame-link-title {
+  color: var(--ink);
+}
+
+#iris-board .iris-frame-link-badge {
+  color: var(--ink-faint);
+}
+
+#iris-board .iris-connector span {
+  color: var(--ink-faint);
+}
+
+#iris-board .iris-card-center .iris-card-kicker,
+#iris-board .iris-card-final .iris-card-kicker,
+#iris-board .iris-card-ai .iris-card-kicker {
+  color: var(--accent);
 }
 
 .gradio-container > .main,
@@ -1549,301 +1894,381 @@ footer,
   display: none !important;
 }
 
-.iris-board {
-  width: 100%;
-  min-height: 100vh;
+.sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
-  background: var(--iris-ink);
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
-.iris-boardbar {
-  position: relative;
-  z-index: 10;
-  min-height: 64px;
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto auto;
-  align-items: center;
-  gap: 14px;
-  padding: 0 24px;
-  border-bottom: 1px solid rgba(154, 171, 188, 0.18);
-  background: rgba(8, 11, 15, 0.9);
-  backdrop-filter: blur(16px);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- shell ---- */
+.iris-app {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--paper);
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 27px, rgba(29, 24, 19, 0.018) 27px, rgba(29, 24, 19, 0.018) 28px);
+}
+
+/* ---- sidebar: the masthead + index ---- */
+.iris-sidebar {
+  width: var(--iris-sidebar-w);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 26px 22px;
+  border-right: 1px solid var(--rule-strong);
+  background: var(--paper-2);
 }
 
 .iris-brand-block {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 10px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.iris-aperture-mark {
+  display: inline-flex;
+  color: var(--ink);
 }
 
 .iris-brand-block strong {
-  color: var(--iris-text);
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1;
+  font-family: var(--serif);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 0.9;
+  color: var(--ink);
 }
 
-.iris-brand-block span,
-.iris-board-status span,
-.iris-frame-header span,
-.iris-card-kicker,
-.iris-connector span,
-.iris-alternative,
-.iris-card-center dt {
-  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, ui-monospace, monospace;
+.iris-brand-sub {
+  grid-column: 1 / -1;
+  font-family: var(--body);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-soft);
 }
 
-.iris-brand-block span {
-  color: var(--iris-muted);
+.iris-new-idea {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--mono);
   font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--d-fast), color var(--d-fast);
 }
 
-.iris-board-status,
-.iris-board-tools {
+.iris-new-idea:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.iris-frame-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-direction: column;
+}
+
+.iris-frame-link {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 4px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-soft);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--d-fast);
+}
+
+.iris-frame-list .iris-frame-link:last-child {
+  border-bottom: 1px solid var(--rule);
+}
+
+.iris-frame-link:hover {
+  color: var(--ink);
+}
+
+.iris-frame-link.is-active {
+  color: var(--ink);
+}
+
+.iris-frame-link.is-active .iris-frame-link-title {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.iris-frame-link-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.iris-frame-link-badge {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+.iris-sidebar-foot {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* ---- main column ---- */
+.iris-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.iris-mainbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 40px 16px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.iris-main-title {
   min-width: 0;
 }
 
-.iris-board-status span,
-.iris-board-tools button {
-  min-height: 28px;
+.iris-main-title > span:first-child {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.iris-main-title strong {
+  display: block;
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.iris-main-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+#iris-status-pill {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+#iris-status-pill.is-thinking {
+  color: var(--accent);
+  animation: iris-blink 1.4s steps(1) infinite;
+}
+
+@keyframes iris-blink {
+  50% { opacity: 0.45; }
+}
+
+.iris-ring {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 0 10px;
-  border: 1px solid rgba(154, 171, 188, 0.18);
-  border-radius: 8px;
-  color: var(--iris-muted);
-  background: rgba(18, 24, 31, 0.72);
-  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, ui-monospace, monospace;
-  font-size: 11px;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.iris-board-status span:first-child {
-  color: var(--iris-cyan);
-  border-color: rgba(102, 217, 215, 0.32);
-}
-
-.iris-board-tools button {
-  min-width: 32px;
-  cursor: pointer;
-}
-
-.iris-board-tools button:hover {
-  border-color: rgba(102, 217, 215, 0.46);
-  color: var(--iris-cyan);
-}
-
-.iris-canvas-viewport {
-  --iris-grid-size: 24px;
-  --iris-grid-x: 120px;
-  --iris-grid-y: 92px;
-  position: relative;
-  height: calc(100vh - 64px);
-  overflow: hidden;
-  touch-action: none;
-  overscroll-behavior: none;
-  user-select: none;
-  cursor: grab;
-  background:
-    radial-gradient(circle at 20% 12%, rgba(102, 217, 215, 0.14), transparent 25%),
-    radial-gradient(circle at 75% 70%, rgba(220, 123, 210, 0.12), transparent 28%),
-    var(--iris-canvas);
-}
-
-.iris-canvas-viewport.is-panning,
-.iris-canvas-viewport.is-frame-dragging {
-  cursor: grabbing;
-}
-
-.iris-canvas-viewport::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(154, 171, 188, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(154, 171, 188, 0.045) 1px, transparent 1px),
-    radial-gradient(circle, rgba(154, 171, 188, 0.22) 1px, transparent 1px);
-  background-size:
-    calc(var(--iris-grid-size) * 4) calc(var(--iris-grid-size) * 4),
-    calc(var(--iris-grid-size) * 4) calc(var(--iris-grid-size) * 4),
-    var(--iris-grid-size) var(--iris-grid-size);
-  background-position:
-    var(--iris-grid-x) var(--iris-grid-y),
-    var(--iris-grid-x) var(--iris-grid-y),
-    var(--iris-grid-x) var(--iris-grid-y);
-  pointer-events: none;
-}
-
-.iris-canvas-grid {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(120deg, transparent 0 44%, rgba(102, 217, 215, 0.08) 45%, transparent 46% 100%),
-    linear-gradient(25deg, transparent 0 66%, rgba(233, 185, 73, 0.08) 67%, transparent 68% 100%);
-  opacity: 0.75;
-}
-
-.iris-canvas-v2 {
-  position: absolute;
-  inset: 0;
-  min-width: 100%;
-  min-height: 100%;
-  transform-origin: 0 0;
-  will-change: transform;
-}
-
-.iris-frame {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 820px;
-  min-height: 220px;
-  padding: 22px;
-  border: 1px solid var(--iris-frame-line);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
-    var(--iris-frame);
-  box-shadow: 0 24px 70px var(--iris-shadow);
-  backdrop-filter: blur(12px);
-  will-change: transform;
-}
-
-.iris-frame.is-active {
-  border-color: rgba(102, 217, 215, 0.46);
-  box-shadow: 0 0 0 1px rgba(102, 217, 215, 0.12), 0 24px 70px var(--iris-shadow);
-}
-
-.iris-frame-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  min-width: 0;
-  margin-bottom: 18px;
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-}
-
-.iris-frame-header:active {
-  cursor: grabbing;
-}
-
-.iris-frame-header div:first-child {
-  min-width: 0;
-}
-
-.iris-frame-header span {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--iris-muted);
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.iris-frame-header strong {
-  display: block;
-  max-width: 460px;
-  color: var(--iris-text);
-  font-size: 20px;
-  font-weight: 650;
-  line-height: 1.25;
-}
-
-.iris-frame-badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 6px;
 }
 
-.iris-frame-badges span {
-  min-height: 25px;
-  display: inline-flex;
-  align-items: center;
-  margin: 0;
-  padding: 0 8px;
-  border: 1px solid rgba(154, 171, 188, 0.18);
-  border-radius: 8px;
-  color: var(--iris-muted);
-  background: rgba(7, 9, 13, 0.46);
-  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, ui-monospace, monospace;
-  font-size: 10px;
+.iris-ring-dot,
+.iris-ring-center {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--rule-strong);
+  transition: background var(--d-mid) var(--ease), border-color var(--d-mid);
+}
+
+.iris-ring-dot.is-on {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.iris-ring-center {
+  width: 9px;
+  height: 9px;
+  margin-left: 3px;
+  transform: rotate(45deg);
+  border-radius: 0;
+}
+
+.iris-ring-center.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.iris-finalize-btn {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
   white-space: nowrap;
+  transition: background var(--d-fast), color var(--d-fast);
 }
 
-.iris-stack {
+.iris-finalize-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.iris-finalize-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- thread ---- */
+.iris-thread-scroll {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
+.iris-thread {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 44px 40px 120px;
+}
+
+.iris-empty-hint {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 460px;
+  text-align: center;
+}
+
+.iris-app.is-empty .iris-empty-hint {
+  display: flex;
+}
+
+.iris-empty-hint strong {
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 500;
+  font-style: italic;
+  color: var(--ink);
+}
+
+.iris-empty-hint span {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.iris-empty-hint b {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* shared card reset (no boxes by default) */
 .iris-card {
   width: 100%;
-  max-width: 642px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.22);
 }
 
-.iris-card-idea,
-.iris-card-iteration {
-  padding: 22px 24px;
-  background: var(--iris-card-light);
-  color: var(--iris-ink-text);
-  border-color: rgba(255, 255, 255, 0.28);
+@keyframes iris-set {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.iris-card.is-fresh,
+.iris-pressure-grid .iris-card-ai.is-fresh {
+  animation: iris-set var(--d-mid) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
 }
 
 .iris-card-kicker {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
-  color: var(--iris-muted-strong);
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.iris-card-idea .iris-card-kicker,
-.iris-card-iteration .iris-card-kicker {
-  color: #25313d !important;
-  font-weight: 700;
-}
-
-.iris-card-idea .iris-card-kicker span,
-.iris-card-iteration .iris-card-kicker span {
-  padding: 2px 6px;
-  border-radius: 6px;
-  color: #25313d !important;
-  background: rgba(23, 32, 42, 0.08);
-}
-
-.iris-card-ai .iris-card-kicker,
-.iris-card-ai .iris-card-kicker span,
-.iris-card-center .iris-card-kicker,
-.iris-card-center .iris-card-kicker span,
-.iris-card-error .iris-card-kicker,
-.iris-card-error .iris-card-kicker span {
-  color: #c7d0d9 !important;
-}
-
-.iris-card-kicker span:first-child {
-  white-space: nowrap;
-}
-
-.iris-card-kicker span:last-child {
-  text-align: right;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
 }
 
 .iris-card p,
@@ -1852,35 +2277,67 @@ footer,
   margin: 0;
 }
 
+/* idea = the author's line, set large */
+.iris-card-idea,
+.iris-card-iteration {
+  padding: 6px 0 4px;
+  border-top: 2px solid var(--ink);
+}
+
+.iris-card-idea .iris-card-kicker span:last-child,
+.iris-card-iteration .iris-card-kicker span:last-child {
+  color: var(--accent);
+}
+
 .iris-card-idea p,
 .iris-card-iteration p {
-  color: var(--iris-ink-text);
-  font-size: 20px;
+  font-family: var(--serif);
+  font-size: 27px;
+  font-weight: 500;
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.iris-card-teach {
+  margin: 0 0 16px !important;
+  font-family: var(--body) !important;
+  font-style: italic;
+  font-size: 14px !important;
+  line-height: 1.55 !important;
+  color: var(--ink-soft) !important;
+}
+
+.iris-card-teach b {
+  font-style: normal;
   font-weight: 600;
-  line-height: 1.32;
+  color: var(--accent);
 }
 
 .iris-card textarea {
   width: 100%;
-  min-height: 116px;
+  min-height: 96px;
+  margin-top: 6px;
   resize: vertical;
-  border: 0;
-  border-radius: 6px;
-  outline: 1px solid rgba(23, 32, 42, 0.1);
-  background: rgba(255, 255, 255, 0.54);
-  color: var(--iris-ink-text);
-  font: inherit;
-  font-size: 18px;
-  font-weight: 620;
-  line-height: 1.35;
-  padding: 14px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-  user-select: text;
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  outline: none;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.3;
+  padding: 14px 16px;
+}
+
+.iris-card textarea::placeholder {
+  color: var(--ink-faint);
+  font-style: italic;
 }
 
 .iris-card textarea:focus {
-  outline-color: rgba(102, 217, 215, 0.74);
-  box-shadow: 0 0 0 4px rgba(102, 217, 215, 0.14);
+  border-color: var(--ink);
 }
 
 .iris-card-actions {
@@ -1890,172 +2347,221 @@ footer,
 }
 
 .iris-card-actions button {
-  min-height: 34px;
-  padding: 0 14px;
-  border: 1px solid rgba(23, 32, 42, 0.2);
-  border-radius: 8px;
-  background: #17202a;
-  color: #f4f0e8;
+  min-height: 38px;
+  padding: 0 22px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   cursor: pointer;
-  font-weight: 700;
+  transition: background var(--d-fast), color var(--d-fast);
 }
 
-.iris-card-actions button:hover {
-  background: #0f161e;
+.iris-card-actions button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--ink);
 }
 
 .iris-card-actions button:disabled {
-  cursor: progress;
-  opacity: 0.6;
+  opacity: 0.4;
+  cursor: default;
 }
 
 .iris-entry-error {
   margin-top: 12px !important;
-  color: #8f1d18 !important;
-  font-size: 13px !important;
+  font-family: var(--mono) !important;
+  font-size: 12px !important;
+  color: var(--accent) !important;
 }
 
+/* connector: a printed sigil between movements */
 .iris-connector {
   width: 100%;
-  height: 54px;
-  display: grid;
-  place-items: center;
-  position: relative;
-  color: rgba(174, 185, 196, 0.76);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 0;
+  color: var(--ink-faint);
 }
 
-.iris-connector::before {
+.iris-connector::before,
+.iris-connector::after {
   content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  background: linear-gradient(180deg, rgba(174, 185, 196, 0), rgba(174, 185, 196, 0.44), rgba(174, 185, 196, 0));
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
 }
 
 .iris-connector span {
-  position: relative;
-  z-index: 1;
-  padding: 4px 8px;
-  border: 1px solid rgba(154, 171, 188, 0.18);
-  border-radius: 8px;
-  background: rgba(13, 20, 29, 0.9);
-  color: var(--iris-muted);
+  font-family: var(--mono);
   font-size: 10px;
-  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-.iris-ai-list {
-  width: 100%;
-  display: grid;
-  place-items: center;
-}
-
+/* pressure: a numbered apparatus of footnotes */
 .iris-pressure-set {
   width: 100%;
 }
 
 .iris-pressure-grid {
   width: 100%;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.iris-pressure-grid .iris-card {
-  max-width: none;
+  display: flex;
+  flex-direction: column;
+  counter-reset: iris-note;
 }
 
 .iris-card-ai {
-  min-height: 180px;
-  padding: 18px;
-  background:
-    linear-gradient(180deg, rgba(102, 217, 215, 0.08), rgba(102, 217, 215, 0)),
-    var(--iris-card-dark);
-  border-color: rgba(102, 217, 215, 0.22);
-  color: var(--iris-text);
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 16px;
+  padding: 18px 0;
+  border-top: 1px solid var(--rule);
 }
 
-.iris-card-ai:nth-of-type(3n + 2) {
-  border-color: rgba(220, 123, 210, 0.34);
-  background:
-    linear-gradient(180deg, rgba(220, 123, 210, 0.08), rgba(220, 123, 210, 0)),
-    var(--iris-card-dark);
+.iris-pressure-grid .iris-card-ai:last-child {
+  border-bottom: 1px solid var(--rule);
 }
 
-.iris-card-ai:nth-of-type(3n) {
-  border-color: rgba(183, 227, 123, 0.34);
-  background:
-    linear-gradient(180deg, rgba(183, 227, 123, 0.08), rgba(183, 227, 123, 0)),
-    var(--iris-card-dark);
+.iris-card-ai::before {
+  counter-increment: iris-note;
+  content: counter(iris-note);
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--accent);
 }
 
-.iris-card-ai.is-selected {
-  border-color: rgba(233, 185, 73, 0.76);
-  box-shadow: 0 0 0 1px rgba(233, 185, 73, 0.2), 0 20px 44px rgba(0, 0, 0, 0.28);
+.iris-card-ai .iris-card-kicker {
+  grid-column: 2;
+  margin-bottom: 6px;
+  color: var(--accent);
+}
+
+.iris-card-ai .iris-card-kicker span:first-child {
+  display: none;
 }
 
 .iris-card-ai h3 {
-  color: var(--iris-text);
-  font-size: 17px;
-  font-weight: 680;
+  grid-column: 2;
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 500;
   line-height: 1.32;
+  color: var(--ink);
 }
 
 .iris-card-ai p {
-  margin-top: 12px;
-  color: var(--iris-muted);
-  font-size: 14px;
-  line-height: 1.45;
+  grid-column: 2;
+  margin-top: 8px;
+  font-family: var(--body);
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-soft);
 }
 
 .iris-alternative {
   display: block;
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(154, 171, 188, 0.16);
-  color: var(--iris-lime);
+  margin-top: 10px;
+  font-family: var(--mono);
   font-size: 11px;
-  line-height: 1.35;
+  color: var(--accent-deep);
 }
 
-.iris-card-empty {
-  min-height: 132px;
-  border-style: dashed;
+/* loading: setting the questions in type */
+.iris-pressure-build {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0 14px;
+  border-top: 2px solid var(--ink);
 }
 
-.iris-card-ai.is-pending,
-.iris-card-center.is-pending {
+.iris-pressure-build em {
+  flex-shrink: 0;
+  font-family: var(--body);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-soft);
+  order: 2;
+}
+
+.iris-pressure-track {
   position: relative;
+  flex: 1;
+  height: 2px;
+  background: var(--rule);
+  order: 1;
   overflow: hidden;
 }
 
-.iris-card-ai.is-pending i,
-.iris-card-center.is-pending i {
+.iris-pressure-fill {
   position: absolute;
-  inset: auto 18px 18px 18px;
-  height: 8px;
-  border-radius: 8px;
-  background: linear-gradient(90deg, rgba(102, 217, 215, 0.12), rgba(102, 217, 215, 0.48), rgba(102, 217, 215, 0.12));
-  animation: iris-pulse 1.8s ease-in-out infinite;
+  inset: 0 auto 0 0;
+  width: 6%;
+  background: var(--accent);
+  animation: iris-build 18s cubic-bezier(0.2, 0.6, 0.1, 1) forwards;
 }
 
-.iris-card-center {
-  padding: 22px 24px;
-  border-color: rgba(183, 227, 123, 0.45);
-  background:
-    linear-gradient(180deg, rgba(183, 227, 123, 0.1), rgba(183, 227, 123, 0)),
-    var(--iris-card-darker);
-  color: var(--iris-text);
+@keyframes iris-build {
+  0% { width: 4%; }
+  80% { width: 86%; }
+  100% { width: 93%; }
+}
+
+.iris-card-ai.is-pending h3,
+.iris-card-ai.is-pending p {
+  color: var(--ink-faint);
+}
+
+.iris-card-ai.is-pending i {
+  grid-column: 2;
+  display: block;
+  height: 10px;
+  width: 60%;
+  margin-top: 8px;
+  background: var(--rule);
+  animation: iris-typeset 1.6s ease-in-out infinite;
+}
+
+.iris-pressure-set.is-pending .iris-card-ai:nth-child(2) i { animation-delay: 0.2s; width: 75%; }
+.iris-pressure-set.is-pending .iris-card-ai:nth-child(3) i { animation-delay: 0.4s; width: 50%; }
+.iris-pressure-set.is-pending .iris-card-ai:nth-child(4) i { animation-delay: 0.6s; width: 68%; }
+
+@keyframes iris-typeset {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+/* center + final: the point, set as a colophon */
+.iris-card-center,
+.iris-card-final {
+  padding: 22px 0 6px;
+  border-top: 3px double var(--accent);
+}
+
+.iris-card-center .iris-card-kicker,
+.iris-card-final .iris-card-kicker {
+  color: var(--accent);
 }
 
 .iris-card-center h3,
-.iris-card-error h3 {
-  color: var(--iris-text);
-  font-size: 17px;
-  font-weight: 650;
-  line-height: 1.36;
+.iris-card-final h3 {
+  font-family: var(--serif);
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.iris-card-final h3 {
+  font-style: italic;
 }
 
 .iris-card-center dl {
@@ -2066,73 +2572,145 @@ footer,
 
 .iris-card-center div {
   display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  grid-template-columns: 110px 1fr;
+  gap: 14px;
+  align-items: baseline;
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
 }
 
 .iris-card-center dt {
-  color: var(--iris-muted);
-  font-size: 11px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
 }
 
 .iris-card-center dd {
   margin: 0;
-  color: var(--iris-text);
-  font-size: 13px;
-  line-height: 1.4;
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.iris-final-block {
+  margin-top: 18px;
+}
+
+.iris-final-block h4 {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.iris-final-block p {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.iris-final-journey,
+.iris-final-pressures {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.iris-final-journey li,
+.iris-final-pressures li {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.iris-final-journey li span,
+.iris-final-pressures li span {
+  margin-right: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 .iris-card-error {
-  padding: 18px;
-  border-color: rgba(255, 180, 171, 0.44);
-  background:
-    linear-gradient(180deg, rgba(255, 180, 171, 0.09), rgba(255, 180, 171, 0)),
-    #1d1216;
-  color: var(--iris-text);
+  padding: 18px 0 6px;
+  border-top: 2px solid var(--accent);
+}
+
+.iris-card-error h3 {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 500;
+  color: var(--ink);
 }
 
 .iris-card-error p {
-  margin-top: 12px;
-  color: var(--iris-danger);
-  font-size: 13px;
-  line-height: 1.45;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent-deep);
 }
 
-@keyframes iris-pulse {
-  0%,
-  100% {
-    opacity: 0.4;
-    transform: translateX(-8px);
+/* Print-to-PDF: a typeset one-page brief on paper. */
+.iris-print-root {
+  display: none;
+}
+
+@page {
+  margin: 0;
+}
+
+@media print {
+  body.iris-printing * {
+    visibility: hidden !important;
   }
-  50% {
-    opacity: 1;
-    transform: translateX(8px);
+  body.iris-printing .iris-print-root,
+  body.iris-printing .iris-print-root * {
+    visibility: visible !important;
+  }
+  body.iris-printing .iris-print-root {
+    display: block !important;
+    position: absolute;
+    inset: 0;
   }
 }
 
-@media (max-width: 760px) {
-  .iris-boardbar {
-    min-height: 104px;
-    grid-template-columns: 1fr;
-    align-items: start;
-    padding: 14px;
+@media (max-width: 860px) {
+  .iris-app {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
-
-  .iris-board-status,
-  .iris-board-tools {
+  .iris-sidebar {
     width: 100%;
-    justify-content: flex-start;
-    overflow-x: auto;
-    padding-bottom: 2px;
   }
-
-  .iris-canvas-viewport {
-    height: calc(100vh - 104px);
+  .iris-frame-list {
+    max-height: 160px;
   }
-
-  .iris-pressure-grid {
-    grid-template-columns: repeat(2, minmax(280px, 1fr));
+  .iris-mainbar {
+    flex-wrap: wrap;
+    padding: 14px 18px;
+    gap: 10px;
+  }
+  .iris-main-status {
+    flex-wrap: wrap;
+  }
+  .iris-thread {
+    padding: 28px 18px 90px;
+  }
+  .iris-main-title strong {
+    max-width: 80vw;
   }
 }
 """

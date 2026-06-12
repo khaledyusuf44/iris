@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+.envrc
+.venv
+__pycache__
+**/__pycache__
+*.pyc
+.DS_Store
+**/.DS_Store
+stitch_iris_atomic_infinite_zoom
+docs/validation/*.png
+*.egg-info
+.pytest_cache

@@ -456,3 +456,35 @@ Validation:
 - Live local `run_canvas_engine()` smoke against MiniCPM4.1 passed at Depth 06
   with four user iterations and three prior AI pressure cards in one frame.
 - Iris quality gate: not rerun for this UI memory checkpoint.
+
+## 2026-06-12
+
+### pending - Harden Hugging Face Space readiness
+
+- Added Docker Space frontmatter and submission-facing README notes for the
+  Build Small track, target awards, demo link, social link, and Space URL.
+- Removed Iris frontend runtime dependencies on Google Fonts and jsDelivr; the
+  final brief now uses the browser's local Save as PDF flow.
+- Added a deterministic Gradio template patch for the Docker image so Gradio's
+  wrapper does not load Google preconnects, the iframe-resizer CDN script, or
+  external Gradio social-card images.
+- Hardened `.dockerignore` so `.env`, `.env.*`, and `.envrc` stay out of the
+  Docker build context.
+- Updated architecture and field-guide docs from the old canvas/circle language
+  to the current pressure-studio product story.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py scripts/patch_gradio_templates.py`
+  passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Browser smoke passed at `http://127.0.0.1:7860`: pressure studio rendered,
+  one active idea card was ready, default Gradio utility buttons were hidden,
+  no horizontal overflow appeared, and the rendered page contained no
+  `fonts.googleapis.com`, `fonts.gstatic.com`, `cdnjs.cloudflare.com`,
+  `cdn.jsdelivr.net`, `raw.githubusercontent.com`, or `html2pdf` references
+  after applying the Gradio template patch.
+- Iris quality gate: not rerun; this was a Hugging Face Space readiness and
+  submission-polish pass, not an engine-output change.

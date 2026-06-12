@@ -1,23 +1,46 @@
+---
+title: Iris
+emoji: 🧠
+colorFrom: red
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+tags:
+  - build-small-hackathon
+  - thousand-token-wood
+  - minicpm
+  - openbmb
+  - codex
+  - custom-ui
+  - tiny-titan
+---
+
 # Iris
 
 Iris is an ideation game for the Build Small Hackathon where the AI does not
-think for you; it applies pressure that makes you think deeper. A fuzzy idea is
-pulled through shrinking rings of constraints until it collapses into one
-concrete next action.
+think for you; it applies pressure that makes you think deeper. A fuzzy idea
+enters a focused pressure studio, MiniCPM returns four sharp pressure cards,
+and the user keeps sharpening the idea until it is ready to export as a concise
+brief.
 
-Status: in progress. Day 2 is focused on the Gradio product experience after
-the Day 1f engine gate passed. Latest validation note: Iris UI v2 now preserves
-deep single-frame memory across many ideations while keeping the canvas
-open-ended. See `docs/validation/day2-v2-deep-frame-memory.md`.
+Status: local demo candidate. Day 2 is focused on turning the validated
+pressure engine into a polished Gradio Space. Latest validation note: Iris UI
+v2 preserves deep single-frame memory across many ideations while keeping the
+MiniCPM model load-bearing. See
+`docs/validation/day2-v2-deep-frame-memory.md`.
 
 ## Current Status
 
 - Repository initialized on `main`.
 - Remote: `https://github.com/khaledyusuf44/iris.git`.
 - Python validation engine: Day 1 gate passed.
-- Gradio UI: Iris UI v2 live canvas/cards flow passing local smoke;
-  four-direction pressure cards, canvas navigation polish, and deep frame
-  memory are ready for Khalid review.
+- Gradio UI: Iris pressure studio flow passing local smoke; four-direction
+  pressure cards, repeat ideation, final brief export, and deep frame memory
+  are ready for Khalid review.
+- Hugging Face Space path: Docker + llama.cpp + local MiniCPM GGUF, with no
+  external model API required at runtime.
 - Project docs: see `docs/`.
 - Hackathon build guidance: see `docs/BUILD_SMALL_FIELD_GUIDE.md`.
 
@@ -27,12 +50,16 @@ open-ended. See `docs/validation/day2-v2-deep-frame-memory.md`.
 AGENTS.md                 AI/core contributor operating notes
 CONTRIBUTING.md           Human contributor workflow
 app.py                    Hugging Face Spaces / Gradio entrypoint
+Dockerfile                Self-contained Docker Space runtime
 docs/                     Project planning, roadmap, and architecture notes
 docs/BUILD_SMALL_FIELD_GUIDE.md
                           Hackathon badge, demo, and submission guidance
+docs/DEPLOY_HF_SPACE.md   Docker Space deploy notes
 docs/CODEX_LOG.md         Codex work log and validation history
 iris/                     Python package for the constraint engine
 scripts/check_repo.sh     Lightweight repository health check
+scripts/space_entrypoint.sh
+                          Starts llama.cpp locally before Gradio in the Space
 scripts/validate_gate.py  Seed spiral run plus automated sharpness gate
 stitch_iris_atomic_infinite_zoom/
                           Earlier Google Stitch atomic UI export/reference
@@ -98,6 +125,26 @@ python3 app.py
 The Gradio UI calls the same Iris engine as the CLI and gate. Keep the MiniCPM
 endpoint environment variables set before launching.
 
+## Run the Hugging Face Space Container
+
+```bash
+docker build -t iris-space .
+docker run --rm -p 7860:7860 iris-space
+```
+
+The container builds `llama-server`, bakes in a small MiniCPM GGUF, points Iris
+at the local OpenAI-compatible endpoint, and serves the Gradio app on port
+`7860`.
+
+## Build Small Submission
+
+- Track: Thousand Token Wood.
+- Model story: MiniCPM is the load-bearing pressure engine.
+- Target awards: OpenBMB, OpenAI Codex, Off Brand, Tiny Titan, and Best Demo.
+- Demo video: TODO add public link before submission.
+- Social post: TODO add public link before submission.
+- Space: TODO add the final Hugging Face Space URL after deployment.
+
 ## Working Agreements
 
 - Keep `main` clean and working.
@@ -109,7 +156,7 @@ endpoint environment variables set before launching.
 
 ## Next Inputs Needed
 
-- MiniCPM/OpenBMB endpoint credentials as local environment variables only.
-- Human review of the Iris UI v2 canvas navigation checkpoint.
-- Next approved UI fixes: deeper smoothness/card animation polish and any
-  additional demo controls Khalid wants after testing navigation.
+- Final Hugging Face Space URL.
+- Demo video link.
+- Social post link.
+- Final badge/tag wording after Khalid confirms the submission strategy.

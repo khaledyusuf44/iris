@@ -17,11 +17,15 @@ class ChatCompletionsClient:
     def __init__(self, config: IrisConfig):
         self.config = config
 
-    def complete(self, messages: list[dict[str, str]]) -> str:
+    def complete(
+        self, messages: list[dict[str, str]], temperature: float | None = None
+    ) -> str:
         payload = {
             "model": self.config.model,
             "messages": messages,
-            "temperature": self.config.temperature,
+            "temperature": (
+                self.config.temperature if temperature is None else temperature
+            ),
             "max_tokens": self.config.max_tokens,
         }
         response = self._post_json("/chat/completions", payload)

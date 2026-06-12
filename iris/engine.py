@@ -17,6 +17,7 @@ from iris.prompts import (
     DIRECTION_STYLES,
     PRESSURE_REPAIR_SYSTEM,
     PRESSURE_SYSTEM,
+    REFINE_SYSTEM,
     RING_PROFILES,
     DIRECTION_PRESSURE_SYSTEM,
     WHY_BITE_SYSTEM,
@@ -24,11 +25,15 @@ from iris.prompts import (
     distill_user_prompt,
     pressure_repair_user_prompt,
     pressure_user_prompt,
+    refine_idea_user_prompt,
     why_bite_user_prompt,
 )
 
 
 MAX_MODEL_ATTEMPTS = 4
+# The live canvas soft-accepts the best-effort card, so extra retries mostly add
+# latency. Cap direction retries lower in soft mode to keep Proceed responsive.
+DIRECTION_SOFT_ATTEMPTS = 2
 PRESSURE_REPEAT_THRESHOLD = 0.68
 DIRECTION_NAMES = tuple(DIRECTION_PROFILES.keys())
 PRESSURE_ALIASES = (
@@ -148,8 +153,22 @@ WEAK_CENTER_FILLS = (
 
 
 class CompletionClient(Protocol):
-    def complete(self, messages: list[dict[str, str]]) -> str:
+    def complete(
+        self, messages: list[dict[str, str]], temperature: float | None = None
+    ) -> str:
         ...
+
+
+# Local small models can get stuck echoing the prompt at temperature 0, so each
+# retry nudges the temperature up to break the deterministic loop.
+RETRY_TEMPERATURES = (0.0, 0.5, 0.8, 1.0)
+
+
+def _retry_temperature(attempt: int) -> float | None:
+    if attempt <= 0:
+        return None
+    index = min(attempt, len(RETRY_TEMPERATURES) - 1)
+    return RETRY_TEMPERATURES[index]
 
 
 @dataclass(frozen=True)
@@ -189,6 +208,12 @@ class DistillResult:
     assumption_to_test: str
     next_step: str
     raw: str
+
+
+@dataclass(frozen=True)
+class FinalBrief:
+    refined_idea: str
+    center: "DistillResult | None"
 
 
 class IrisEngine:
@@ -247,6 +272,7 @@ class IrisEngine:
         total: int,
         *,
         allow_soft_failures: bool = False,
+        conversation: list[dict[str, str]] | None = None,
     ) -> list[DirectionPressureResult]:
         if depth < 1 or total < 1 or depth > total:
             raise ValueError("depth must be between 1 and total")
@@ -264,6 +290,7 @@ class IrisEngine:
                     total=total,
                     direction=direction,
                     allow_soft_failure=allow_soft_failures,
+                    conversation=conversation,
                 )
             )
         return results
@@ -339,12 +366,14 @@ class IrisEngine:
         total: int,
         direction: str,
         allow_soft_failure: bool = False,
+        conversation: list[dict[str, str]] | None = None,
     ) -> DirectionPressureResult:
         feedback: str | None = None
         last_result: DirectionPressureResult | None = None
         last_error: IrisResponseError | None = None
 
-        for _attempt in range(MAX_MODEL_ATTEMPTS):
+        attempts = DIRECTION_SOFT_ATTEMPTS if allow_soft_failure else MAX_MODEL_ATTEMPTS
+        for _attempt in range(attempts):
             try:
                 result = self._pressure_direction_once(
                     idea=idea,
@@ -353,6 +382,8 @@ class IrisEngine:
                     total=total,
                     direction=direction,
                     rejection_feedback=feedback,
+                    temperature=_retry_temperature(_attempt),
+                    conversation=conversation,
                 )
             except IrisResponseError as exc:
                 last_error = exc
@@ -369,13 +400,34 @@ class IrisEngine:
             feedback = quality_feedback
 
         if last_result is not None and feedback is not None:
-            if allow_soft_failure and _is_soft_direction_failure(feedback):
+            # In soft mode (the live canvas), prefer a best-effort card over
+            # throwing away the whole turn: once the model has produced a
+            # parseable result, accept the last attempt rather than failing the
+            # entire pressure set. The strict CLI/gate path keeps raising.
+            if allow_soft_failure:
                 return last_result
             raise IrisResponseError(
                 f"{direction} direction failed quality gate: {feedback}"
             )
         if last_result is not None:
             return last_result
+        # Soft mode (live canvas): never crash the whole turn. If the local
+        # model never returned anything parseable for this direction (e.g. it
+        # echoed the prompt back), surface an honest placeholder card so the
+        # other directions still show and the user can retry this idea.
+        if allow_soft_failure:
+            return DirectionPressureResult(
+                direction=direction,
+                pressure=(
+                    f"What is the sharpest {direction.lower()} pressure on this "
+                    "idea right now?"
+                ),
+                why_it_bites=(
+                    "The local model could not return a clean answer for this "
+                    "phrasing. Rephrase the idea a little and proceed again."
+                ),
+                raw=str(last_error) if last_error else "",
+            )
         if last_error is not None:
             raise last_error
         raise IrisResponseError(
@@ -390,24 +442,27 @@ class IrisEngine:
         total: int,
         direction: str,
         rejection_feedback: str | None,
+        temperature: float | None = None,
+        conversation: list[dict[str, str]] | None = None,
     ) -> DirectionPressureResult:
-        raw = self.client.complete(
-            [
-                {"role": "system", "content": DIRECTION_PRESSURE_SYSTEM},
-                {
-                    "role": "user",
-                    "content": direction_pressure_user_prompt(
-                        idea=idea,
-                        prior_constraints=prior_constraints,
-                        depth=depth,
-                        total=total,
-                        direction=direction,
-                        enable_thinking=self.config.enable_thinking,
-                        rejection_feedback=rejection_feedback,
-                    ),
-                },
-            ]
+        messages = [{"role": "system", "content": DIRECTION_PRESSURE_SYSTEM}]
+        if conversation:
+            messages.extend(conversation)
+        messages.append(
+            {
+                "role": "user",
+                "content": direction_pressure_user_prompt(
+                    idea=idea,
+                    prior_constraints=prior_constraints,
+                    depth=depth,
+                    total=total,
+                    direction=direction,
+                    enable_thinking=self.config.enable_thinking,
+                    rejection_feedback=rejection_feedback,
+                ),
+            }
         )
+        raw = self.client.complete(messages, temperature=temperature)
         data = parse_json_object_with_key(
             raw, "pressure", aliases=PRESSURE_ALIASES
         )
@@ -522,6 +577,57 @@ class IrisEngine:
         if last_error is not None:
             raise last_error
         raise IrisResponseError("Model did not return distillation output")
+
+    def finalize(
+        self,
+        idea: str,
+        all_constraints: list[str],
+        *,
+        conversation: list[dict[str, str]] | None = None,
+    ) -> FinalBrief:
+        """Synthesize the final brief. Always returns; never crashes the turn."""
+
+        refined = self._refine_idea(idea, all_constraints, conversation)
+        try:
+            center: DistillResult | None = self.distill(idea, all_constraints)
+        except IrisResponseError:
+            center = None
+        return FinalBrief(refined_idea=refined, center=center)
+
+    def _refine_idea(
+        self,
+        idea: str,
+        all_constraints: list[str],
+        conversation: list[dict[str, str]] | None,
+    ) -> str:
+        fallback = _current_iteration_text(idea) or idea
+        for attempt in range(DIRECTION_SOFT_ATTEMPTS):
+            messages = [{"role": "system", "content": REFINE_SYSTEM}]
+            if conversation:
+                messages.extend(conversation)
+            messages.append(
+                {
+                    "role": "user",
+                    "content": refine_idea_user_prompt(
+                        idea=idea,
+                        all_constraints=all_constraints,
+                        enable_thinking=self.config.enable_thinking,
+                    ),
+                }
+            )
+            try:
+                raw = self.client.complete(
+                    messages, temperature=_retry_temperature(attempt)
+                )
+                data = parse_json_object_with_key(
+                    raw, "refined_idea", aliases=("refined", "idea", "summary")
+                )
+                return require_string(
+                    data, "refined_idea", aliases=("refined", "summary")
+                )
+            except IrisResponseError:
+                continue
+        return fallback
 
     def _distill_once(
         self,
@@ -820,14 +926,6 @@ def _direction_opening_feedback(direction: str, normalized_pressure: str) -> str
     return (
         f'{direction} pressure must start with "{DIRECTION_STYLES[direction]["opening"]}" '
         "so each card stays in its assigned direction."
-    )
-
-
-def _is_soft_direction_failure(feedback: str) -> bool:
-    return (
-        "pressure repeats a prior pressure" in feedback
-        or "pressure ignored the current iteration" in feedback
-        or "pressure is not grounded in the idea" in feedback
     )
 
 
@@ -1160,6 +1258,10 @@ def _current_iteration_keywords(text: str) -> set[str]:
         if not (_keyword_variants(keyword) & original_variants)
     }
     return current_only or current_keywords
+
+
+def _current_iteration_text(text: str) -> str:
+    return _frame_context_section(text, "Current iteration:")
 
 
 def _frame_context_section(text: str, heading: str) -> str:
