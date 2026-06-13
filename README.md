@@ -132,8 +132,9 @@ docker build -t iris-space .
 docker run --rm -p 7860:7860 iris-space
 ```
 
-The container builds `llama-server`, bakes in a small MiniCPM GGUF, points Iris
-at the local OpenAI-compatible endpoint, and serves the Gradio app on port
+The container downloads a pinned prebuilt `llama-server`, bakes in a small
+MiniCPM GGUF, points Iris at the local OpenAI-compatible endpoint, and serves
+the Gradio app on port
 `7860`.
 
 ## Build Small Submission
@@ -151,9 +152,9 @@ until you export a one-page brief.
   frontend embedded in a Gradio Space (well past stock Gradio components);
   MiniCPM as the load-bearing engine. Python only validates, formats, and
   re-prompts — it never writes the pressure itself.
-- **Runtime:** Hugging Face **Docker Space** that builds `llama-server`
-  (llama.cpp) and bakes a MiniCPM3-4B GGUF into the image, so the whole app runs
-  on the local model with **no cloud model API**.
+- **Runtime:** Hugging Face **Docker Space** that downloads a pinned prebuilt
+  `llama-server` (llama.cpp) and bakes a MiniCPM3-4B GGUF into the image, so
+  the whole app runs on the local model with **no cloud model API**.
 
 ### Declared tags (parsed by the official submission tool)
 

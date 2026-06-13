@@ -527,3 +527,19 @@ Validation:
 - `./scripts/check_repo.sh` passed.
 - Iris quality gate: not rerun; this was README submission metadata and
   narrative alignment.
+
+### pending - Speed up Hugging Face Space Docker build
+
+- Replaced the source build of llama.cpp with a pinned prebuilt Ubuntu x64 CPU
+  `llama-server` archive from the official llama.cpp releases.
+- Kept the runtime path on llama.cpp while avoiding a long C++ compile on the
+  Hugging Face Space builder.
+- Updated README and deploy docs to describe the prebuilt `llama-server` path.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Space deployment: pending build verification.

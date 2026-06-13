@@ -6,27 +6,25 @@
 # Tiny Titan badge (<=4B params) with reliable upstream llama.cpp support.
 ARG GGUF_REPO=openbmb/MiniCPM3-4B-GGUF
 ARG GGUF_FILE=minicpm3-4b-q4_k_m.gguf
+ARG LLAMA_CPP_TAG=b9616
+ARG LLAMA_CPP_ARCHIVE=llama-b9616-bin-ubuntu-x64.tar.gz
 
 # ---------------------------------------------------------------------------
-# Stage 1: build llama.cpp's llama-server (static-linked, generic CPU build).
+# Stage 1: fetch llama.cpp's prebuilt Ubuntu CPU server binary.
 # ---------------------------------------------------------------------------
-FROM python:3.11-slim AS llama-build
+FROM python:3.11-slim AS llama-bin
+ARG LLAMA_CPP_TAG
+ARG LLAMA_CPP_ARCHIVE
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git build-essential cmake libcurl4-openssl-dev \
+        ca-certificates curl tar \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp /src/llama.cpp
-WORKDIR /src/llama.cpp
-
-# GGML_NATIVE=OFF keeps the binary portable across HF build/runtime CPUs
-# (native autovectorization can emit instructions the runtime CPU lacks).
-RUN cmake -B build \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DLLAMA_CURL=ON \
-        -DGGML_NATIVE=OFF \
-        -DBUILD_SHARED_LIBS=OFF \
-    && cmake --build build --config Release -j "$(nproc)" --target llama-server
+RUN mkdir -p /opt/llama.cpp \
+    && curl -L --fail \
+        "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_CPP_TAG}/${LLAMA_CPP_ARCHIVE}" \
+        | tar -xz --strip-components=1 -C /opt/llama.cpp \
+    && test -x /opt/llama.cpp/llama-server
 
 # ---------------------------------------------------------------------------
 # Stage 2: download the GGUF once, at build time, into the image.
@@ -53,11 +51,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # HF Spaces run the container as uid 1000.
 RUN useradd -m -u 1000 user
 ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH \
+    PATH=/opt/llama.cpp:/home/user/.local/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/llama.cpp \
     PYTHONUNBUFFERED=1 \
     IRIS_MODEL_PATH=/models/${GGUF_FILE}
 
-COPY --from=llama-build /src/llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
+COPY --from=llama-bin /opt/llama.cpp /opt/llama.cpp
 COPY --from=model-fetch /models /models
 
 WORKDIR /app

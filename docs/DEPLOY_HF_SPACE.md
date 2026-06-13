@@ -54,8 +54,8 @@ it is independent of this deploy.
 
 ## Files added for the Space
 
-- `Dockerfile` — builds llama.cpp `llama-server`, bakes the GGUF into the image,
-  installs Iris + Gradio.
+- `Dockerfile` — downloads a pinned prebuilt llama.cpp `llama-server`, bakes
+  the GGUF into the image, installs Iris + Gradio.
 - `scripts/space_entrypoint.sh` — starts `llama-server` on localhost, waits for
   health, wires `IRIS_*` env vars, then launches `app.py`.
 - `scripts/patch_gradio_templates.py` — removes optional external Google/CDN
