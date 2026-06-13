@@ -459,7 +459,7 @@ Validation:
 
 ## 2026-06-12
 
-### pending - Harden Hugging Face Space readiness
+### 784e929 - Harden Hugging Face Space readiness
 
 - Added Docker Space frontmatter and submission-facing README notes for the
   Build Small track, target awards, demo link, social link, and Space URL.
@@ -488,3 +488,23 @@ Validation:
   after applying the Gradio template patch.
 - Iris quality gate: not rerun; this was a Hugging Face Space readiness and
   submission-polish pass, not an engine-output change.
+
+## 2026-06-13
+
+### pending - Guard model output against template-placeholder leaks
+
+- Added a template-leak guard so bracketed or angle-bracketed fill-in
+  placeholders like `[Constraint]`, `[this]`, or `<idea>` trigger quality
+  feedback instead of reaching the UI or CLI.
+- Kept soft canvas mode resilient by returning a clean honest fallback card
+  when the local model keeps leaking template placeholders after retries.
+- Added regression coverage proving soft mode never surfaces placeholder cards.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Iris quality gate: not rerun; this was a model-output validation hardening
+  change covered by targeted regression tests.

@@ -822,6 +822,27 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(client.messages), 5)
         self.assertIn("ignored the current iteration", client.messages[1][1]["content"])
 
+    def test_soft_mode_never_shows_template_placeholder_cards(self) -> None:
+        # The model keeps echoing the prompt template with bracketed placeholders.
+        # Soft mode must NOT surface "[Constraint]"/"[this]" cards to the user;
+        # it returns a clean honest fallback instead.
+        leak = (
+            '{"pressure": "What hard [Constraint] does [this] collide with?", '
+            '"why_it_bites": "It collides with [the idea]."}'
+        )
+        engine = IrisEngine(FakeClient([leak] * 64))
+        results = engine.pressure_directions(
+            "An app that reminds elderly people to take medication.",
+            [],
+            1,
+            4,
+            allow_soft_failures=True,
+        )
+        self.assertEqual(len(results), 4)
+        for result in results:
+            self.assertNotIn("[", result.pressure)
+            self.assertNotIn("[", result.why_it_bites)
+
     def test_pressure_directions_soft_mode_never_crashes_on_unparseable_echo(self) -> None:
         # The local model echoes the prompt instead of answering: no "pressure"
         # key, and invalid JSON. Soft mode must still return four cards.

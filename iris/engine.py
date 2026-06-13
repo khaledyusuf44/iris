@@ -72,6 +72,16 @@ WEAK_ALTERNATIVE_FILLS = (
     "problem",
 )
 
+# Small local models sometimes echo the prompt's fill-in template instead of an
+# answer, e.g. "What hard [Constraint] does [this] collide with?". Square/angle
+# bracketed placeholders are the clean signal; real pressures don't use them.
+TEMPLATE_LEAK_RE = re.compile(r"\[[^\]]*[A-Za-z][^\]]*\]|<[^>]*[A-Za-z][^>]*>")
+
+
+def _has_template_leak(*texts: str | None) -> bool:
+    return any(bool(text) and bool(TEMPLATE_LEAK_RE.search(text)) for text in texts)
+
+
 BANNED_PRESSURE_PHRASES = (
     "the app needs",
     "the app must",
@@ -399,23 +409,11 @@ class IrisEngine:
             last_result = result
             feedback = quality_feedback
 
-        if last_result is not None and feedback is not None:
-            # In soft mode (the live canvas), prefer a best-effort card over
-            # throwing away the whole turn: once the model has produced a
-            # parseable result, accept the last attempt rather than failing the
-            # entire pressure set. The strict CLI/gate path keeps raising.
-            if allow_soft_failure:
-                return last_result
-            raise IrisResponseError(
-                f"{direction} direction failed quality gate: {feedback}"
-            )
-        if last_result is not None:
-            return last_result
-        # Soft mode (live canvas): never crash the whole turn. If the local
-        # model never returned anything parseable for this direction (e.g. it
-        # echoed the prompt back), surface an honest placeholder card so the
-        # other directions still show and the user can retry this idea.
-        if allow_soft_failure:
+        def graceful_fallback() -> DirectionPressureResult:
+            # Soft mode (live canvas): never crash the whole turn, and never show
+            # leaked/garbage text. When the local model cannot return a clean
+            # answer (echoes the prompt, leaks a "[placeholder]"), surface an
+            # honest, readable card so the other directions still render.
             return DirectionPressureResult(
                 direction=direction,
                 pressure=(
@@ -428,6 +426,24 @@ class IrisEngine:
                 ),
                 raw=str(last_error) if last_error else "",
             )
+
+        if last_result is not None and feedback is not None:
+            # In soft mode prefer a best-effort card over throwing away the whole
+            # turn, BUT only if the card is clean. A result that still leaks a
+            # bracketed template placeholder is worse than the honest fallback.
+            if allow_soft_failure:
+                if _has_template_leak(
+                    last_result.pressure, last_result.why_it_bites
+                ):
+                    return graceful_fallback()
+                return last_result
+            raise IrisResponseError(
+                f"{direction} direction failed quality gate: {feedback}"
+            )
+        if last_result is not None:
+            return last_result
+        if allow_soft_failure:
+            return graceful_fallback()
         if last_error is not None:
             raise last_error
         raise IrisResponseError(
@@ -729,6 +745,12 @@ def _pressure_quality_feedback(
     if "?" not in pressure:
         return "Pressure must be a hard question ending with a question mark."
 
+    if _has_template_leak(result.pressure, result.why_it_bites):
+        return (
+            "Output leaked a fill-in placeholder like [Constraint] or [this]. "
+            "Write the actual question and bite with no bracketed placeholders."
+        )
+
     if profile:
         required_opening = str(profile["required_opening"])
         if not normalized.startswith(required_opening.lower()):
@@ -860,6 +882,13 @@ def _single_direction_pressure_quality_feedback(
         return (
             f"{result.direction} pressure must be one hard question ending with "
             "a question mark."
+        )
+
+    if _has_template_leak(result.pressure, result.why_it_bites):
+        return (
+            f"{result.direction} output leaked a fill-in placeholder like "
+            "[Constraint] or [this]. Write the actual question and bite with no "
+            "bracketed placeholders."
         )
 
     direction_opening_feedback = _direction_opening_feedback(
