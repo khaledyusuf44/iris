@@ -491,7 +491,7 @@ Validation:
 
 ## 2026-06-13
 
-### pending - Guard model output against template-placeholder leaks
+### 56b9212 - Guard model output against template-placeholder leaks
 
 - Added a template-leak guard so bracketed or angle-bracketed fill-in
   placeholders like `[Constraint]`, `[this]`, or `<idea>` trigger quality
@@ -508,3 +508,22 @@ Validation:
 - `./scripts/check_repo.sh` passed.
 - Iris quality gate: not rerun; this was a model-output validation hardening
   change covered by targeted regression tests.
+
+### pending - Align README tags with Build Small submission format
+
+- Replaced freeform README frontmatter tags with the hackathon's namespaced
+  `track:`, `sponsor:`, and `achievement:` tags so the submission tool can
+  parse Iris correctly.
+- Added a submission-facing explanation of what Iris is, how it is built, why
+  MiniCPM is load-bearing, and which target awards/badges the app should claim.
+- Left the demo video, social post, and Space URL TODO slots untouched for
+  Khalid to fill after recording and posting.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Iris quality gate: not rerun; this was README submission metadata and
+  narrative alignment.

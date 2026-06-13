@@ -8,13 +8,13 @@ app_port: 7860
 pinned: false
 license: mit
 tags:
-  - build-small-hackathon
-  - thousand-token-wood
+  - track:wood
+  - sponsor:openbmb
+  - sponsor:openai
+  - achievement:offgrid
+  - achievement:offbrand
+  - achievement:llama
   - minicpm
-  - openbmb
-  - codex
-  - custom-ui
-  - tiny-titan
 ---
 
 # Iris
@@ -138,12 +138,44 @@ at the local OpenAI-compatible endpoint, and serves the Gradio app on port
 
 ## Build Small Submission
 
-- Track: Thousand Token Wood.
-- Model story: MiniCPM is the load-bearing pressure engine.
-- Target awards: OpenBMB, OpenAI Codex, Off Brand, Tiny Titan, and Best Demo.
-- Demo video: TODO add public link before submission.
-- Social post: TODO add public link before submission.
-- Space: TODO add the final Hugging Face Space URL after deployment.
+### What it is, how it's built
+
+Iris is a thinking instrument: the AI never hands you an answer, it applies
+**pressure**. You drop a fuzzy idea into a focused studio; a small MiniCPM model
+returns four sharp, idea-specific pressure questions (Constraints, Limitations,
+Capabilities, Reality Contact); you sharpen the idea and go again, ring by ring,
+until you export a one-page brief.
+
+- **Tech:** Python constraint engine wrapping an OpenAI-compatible
+  `/v1/chat/completions` endpoint; a custom HTML/CSS/JS "pressure studio"
+  frontend embedded in a Gradio Space (well past stock Gradio components);
+  MiniCPM as the load-bearing engine. Python only validates, formats, and
+  re-prompts — it never writes the pressure itself.
+- **Runtime:** Hugging Face **Docker Space** that builds `llama-server`
+  (llama.cpp) and bakes a MiniCPM3-4B GGUF into the image, so the whole app runs
+  on the local model with **no cloud model API**.
+
+### Declared tags (parsed by the official submission tool)
+
+- `track:wood` — Thousand Token Wood (a delightful, AI-native thinking game).
+- `sponsor:openbmb` — MiniCPM is the core, load-bearing model.
+- `sponsor:openai` — built with Codex; commits are Codex-attributed.
+- `achievement:offgrid` — no cloud APIs; the model runs locally in the Space.
+- `achievement:offbrand` — custom frontend beyond the default Gradio look.
+- `achievement:llama` — the model is served through the llama.cpp runtime.
+
+### Also eligible (judged, not self-tagged)
+
+- **Tiny Titan** (≤4B) — the Space runs MiniCPM3-4B.
+- **Best Demo** — once the demo video + social post are in.
+- **Bonus Quest Champion** — most bonus criteria met.
+
+### Still required before submission
+
+- Demo video: TODO add public link (YouTube or uploaded to the Space).
+- Social post: TODO add public link, then link it here.
+- Space: TODO add the final Hugging Face Space URL after deploying to the
+  `build-small-hackathon` org.
 
 ## Working Agreements
 
