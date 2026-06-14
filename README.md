@@ -19,6 +19,8 @@ tags:
 
 # Iris
 
+**[▶ Live Space](https://huggingface.co/spaces/build-small-hackathon/iris-pressure-studio) · [🎬 Demo video](https://youtu.be/YTFo2cYE53k) · [🐦 Social post](https://x.com/khaledyusuf44/status/2066014978079932853)**
+
 Iris is an ideation game for the Build Small Hackathon where the AI does not
 think for you; it applies pressure that makes you think deeper. A fuzzy idea
 enters a focused pressure studio, MiniCPM returns four sharp pressure cards,
@@ -171,12 +173,11 @@ until you export a one-page brief.
 - **Best Demo** — once the demo video + social post are in.
 - **Bonus Quest Champion** — most bonus criteria met.
 
-### Still required before submission
+### Submission links
 
-- Demo video: TODO add public link (YouTube or uploaded to the Space).
-- Social post: TODO add public link, then link it here.
-- Space: TODO add the final Hugging Face Space URL after deploying to the
-  `build-small-hackathon` org.
+- **Live Space:** https://huggingface.co/spaces/build-small-hackathon/iris-pressure-studio
+- **Demo video:** https://youtu.be/YTFo2cYE53k
+- **Social post:** https://x.com/khaledyusuf44/status/2066014978079932853
 
 ## Working Agreements
 
@@ -189,7 +190,4 @@ until you export a one-page brief.
 
 ## Next Inputs Needed
 
-- Final Hugging Face Space URL.
-- Demo video link.
-- Social post link.
 - Final badge/tag wording after Khalid confirms the submission strategy.

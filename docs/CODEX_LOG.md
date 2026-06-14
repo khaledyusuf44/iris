@@ -571,7 +571,7 @@ Validation:
   prompted a follow-up change to collapse the four direction requests into one
   bounded model generation.
 
-### pending - Fit live Space pressure rounds on CPU Basic
+### 0be287b - Fit live Space pressure rounds on CPU Basic
 
 - Kept MiniCPM load-bearing while asking the live HTTP client for all four
   direction cards in one combined model call.
@@ -590,3 +590,16 @@ Validation:
 - `bash -n scripts/space_entrypoint.sh` passed.
 - `git diff --check` passed.
 - `./scripts/check_repo.sh` passed.
+
+### pending - Add demo, social, and Space links to README
+
+- Added the final Live Space, demo video, and social post links to the README
+  submission section and top quick-links banner.
+- Removed the now-satisfied README TODO items for Space, demo video, and social
+  post links.
+- Left the Build Small YAML frontmatter tags unchanged.
+
+Validation:
+
+- `./scripts/check_repo.sh` passed.
+- `git diff --check` passed.
