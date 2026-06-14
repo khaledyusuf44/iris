@@ -578,6 +578,9 @@ Validation:
 - Preserved deterministic sequential behavior for tests and fake clients.
 - Raised the live browser/backend timeout budget to 10 minutes for CPU Basic
   cold runs while keeping `IRIS_MAX_TOKENS` capped.
+- Capped the combined live call at one attempt and tightened the prompt against
+  generic "the idea" cards after the live Space returned four cards in about
+  seven minutes but with weak generic wording.
 - No README submission TODO slots changed.
 
 Validation:

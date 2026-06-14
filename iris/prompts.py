@@ -403,7 +403,11 @@ Required style:
 - Return one card for each direction, in this exact order: Constraints,
   Limitations, Capabilities, Reality Contact.
 - Each pressure must start with that direction's required opening.
-- Use concrete nouns from the idea.
+- Use concrete nouns from the Current iteration. Copy at least one exact,
+  meaningful word from the user's current wording into every pressure.
+- Do not use "the idea" as the subject of a pressure. Name the actual thing:
+  the tool board, drill, ladder, medication reminder, lecture notes, neighbor,
+  or whatever concrete object/person is in this user's wording.
 - Do not propose a feature, implementation, strategy, or solution.
 - why_it_bites must explain only the risk or stakes. Do not use recommendation
   words like "should", "need to", "incorporate", "features", "solution", or

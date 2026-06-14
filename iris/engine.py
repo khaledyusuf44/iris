@@ -36,6 +36,10 @@ MAX_MODEL_ATTEMPTS = 4
 # The live canvas soft-accepts the best-effort card, so extra retries mostly add
 # latency. Cap direction retries lower in soft mode to keep Proceed responsive.
 DIRECTION_SOFT_ATTEMPTS = 2
+# The live Space uses one combined generation for all four direction cards.
+# Retrying that whole payload on CPU Basic costs minutes; if the first answer is
+# imperfect, soft mode shows the best clean result instead of stalling the demo.
+DIRECTION_SET_SOFT_ATTEMPTS = 1
 PRESSURE_REPEAT_THRESHOLD = 0.68
 DIRECTION_NAMES = tuple(DIRECTION_PROFILES.keys())
 PRESSURE_ALIASES = (
@@ -455,7 +459,7 @@ class IrisEngine:
         last_results: list[DirectionPressureResult] | None = None
         last_error: IrisResponseError | None = None
 
-        for attempt in range(DIRECTION_SOFT_ATTEMPTS):
+        for attempt in range(DIRECTION_SET_SOFT_ATTEMPTS):
             try:
                 results = self._pressure_direction_set_once(
                     idea=idea,
