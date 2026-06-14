@@ -549,7 +549,7 @@ Validation:
 
 ## 2026-06-14
 
-### pending - Fit Space model calls within CPU timeout budget
+### 39be7ca - Fit Space model calls within CPU timeout budget
 
 - Raised the live UI engine-call abort window from 90 seconds to 4 minutes so
   CPU Basic MiniCPM rounds can complete instead of returning all-red timeout
@@ -565,4 +565,18 @@ Validation:
 - `bash -n scripts/space_entrypoint.sh` passed.
 - `git diff --check` passed.
 - `./scripts/check_repo.sh` passed.
-- Space deployment: pending rebuild and live Proceed verification.
+- Space deployment: built and ran on
+  `https://build-small-hackathon-iris-pressure-studio.hf.space`, but a live
+  CPU Basic pressure round still exceeded the new 4-minute client budget. That
+  prompted a follow-up change to use llama-server's parallel slots.
+
+### pending - Parallelize live pressure directions on Space
+
+- Kept MiniCPM load-bearing while dispatching the four live canvas direction
+  calls concurrently against the local llama-server HTTP client.
+- Preserved deterministic sequential behavior for tests and fake clients.
+- No README submission TODO slots changed.
+
+Validation:
+
+- Targeted direction-pressure regression tests passed.

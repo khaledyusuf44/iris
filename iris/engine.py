@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 import re
@@ -286,6 +287,23 @@ class IrisEngine:
     ) -> list[DirectionPressureResult]:
         if depth < 1 or total < 1 or depth > total:
             raise ValueError("depth must be between 1 and total")
+
+        if allow_soft_failures and isinstance(self.client, ChatCompletionsClient):
+            with ThreadPoolExecutor(max_workers=len(DIRECTION_NAMES)) as executor:
+                futures = [
+                    executor.submit(
+                        self._pressure_direction,
+                        idea=idea,
+                        prior_constraints=list(prior_constraints),
+                        depth=depth,
+                        total=total,
+                        direction=direction,
+                        allow_soft_failure=allow_soft_failures,
+                        conversation=conversation,
+                    )
+                    for direction in DIRECTION_NAMES
+                ]
+                return [future.result() for future in futures]
 
         results: list[DirectionPressureResult] = []
         for direction in DIRECTION_NAMES:
