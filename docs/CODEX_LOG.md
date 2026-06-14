@@ -509,7 +509,7 @@ Validation:
 - Iris quality gate: not rerun; this was a model-output validation hardening
   change covered by targeted regression tests.
 
-### pending - Align README tags with Build Small submission format
+### a0a1871 - Align README tags with Build Small submission format
 
 - Replaced freeform README frontmatter tags with the hackathon's namespaced
   `track:`, `sponsor:`, and `achievement:` tags so the submission tool can
@@ -528,7 +528,7 @@ Validation:
 - Iris quality gate: not rerun; this was README submission metadata and
   narrative alignment.
 
-### pending - Speed up Hugging Face Space Docker build
+### c6cc4ac - Speed up Hugging Face Space Docker build
 
 - Replaced the source build of llama.cpp with a pinned prebuilt Ubuntu x64 CPU
   `llama-server` archive from the official llama.cpp releases.
@@ -542,4 +542,27 @@ Validation:
 - `python3 -m compileall iris tests app.py` passed.
 - `git diff --check` passed.
 - `./scripts/check_repo.sh` passed.
-- Space deployment: pending build verification.
+- Space deployment: built and ran at
+  `https://build-small-hackathon-iris-pressure-studio.hf.space`; logs showed
+  MiniCPM loaded through `llama-server`, the model server became healthy, and
+  Gradio launched on `0.0.0.0:7860`.
+
+## 2026-06-14
+
+### pending - Fit Space model calls within CPU timeout budget
+
+- Raised the live UI engine-call abort window from 90 seconds to 4 minutes so
+  CPU Basic MiniCPM rounds can complete instead of returning all-red timeout
+  cards.
+- Set the Space default `IRIS_MAX_TOKENS` to 320 because pressure cards are
+  short and CPU generation speed is the live bottleneck.
+- Kept README submission TODO links untouched.
+
+Validation:
+
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `bash -n scripts/space_entrypoint.sh` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
+- Space deployment: pending rebuild and live Proceed verification.

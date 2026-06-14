@@ -42,6 +42,9 @@ export IRIS_MODEL="${IRIS_MODEL:-local-minicpm}"
 export IRIS_API_KEY="${IRIS_API_KEY:-not-needed}"
 # MiniCPM3-4B is not a /think model; keep thinking off unless overridden.
 export IRIS_ENABLE_THINKING="${IRIS_ENABLE_THINKING:-0}"
+# Pressures are 1-2 sentences. Cap output so CPU generation stays fast enough to
+# finish within the client timeout on modest Space hardware.
+export IRIS_MAX_TOKENS="${IRIS_MAX_TOKENS:-320}"
 
 # Gradio reads these to bind the public Space port.
 export GRADIO_SERVER_NAME="${GRADIO_SERVER_NAME:-0.0.0.0}"

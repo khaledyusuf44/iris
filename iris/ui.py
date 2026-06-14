@@ -1530,7 +1530,7 @@ APP_JS = r"""
   async function callEngine(payload) {
     const endpoint = `${window.location.origin}/gradio_api/call/iris_canvas_engine`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 90000);
+    const timeout = setTimeout(() => controller.abort(), 240000);
     try {
       const start = await fetch(endpoint, {
         method: "POST",
@@ -1559,7 +1559,7 @@ APP_JS = r"""
     } catch (error) {
       if (error && error.name === "AbortError") {
         throw new Error(
-          "The local model took too long (over 90s). It may be overloaded — try again.",
+          "The local model took too long (over 4 minutes). It may be overloaded — try again.",
         );
       }
       throw error;
