@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 import re
@@ -16,12 +15,14 @@ from iris.prompts import (
     DISTILL_SYSTEM,
     DIRECTION_PROFILES,
     DIRECTION_STYLES,
+    DIRECTION_SET_PRESSURE_SYSTEM,
     PRESSURE_REPAIR_SYSTEM,
     PRESSURE_SYSTEM,
     REFINE_SYSTEM,
     RING_PROFILES,
     DIRECTION_PRESSURE_SYSTEM,
     WHY_BITE_SYSTEM,
+    direction_set_pressure_user_prompt,
     direction_pressure_user_prompt,
     distill_user_prompt,
     pressure_repair_user_prompt,
@@ -289,21 +290,13 @@ class IrisEngine:
             raise ValueError("depth must be between 1 and total")
 
         if allow_soft_failures and isinstance(self.client, ChatCompletionsClient):
-            with ThreadPoolExecutor(max_workers=len(DIRECTION_NAMES)) as executor:
-                futures = [
-                    executor.submit(
-                        self._pressure_direction,
-                        idea=idea,
-                        prior_constraints=list(prior_constraints),
-                        depth=depth,
-                        total=total,
-                        direction=direction,
-                        allow_soft_failure=allow_soft_failures,
-                        conversation=conversation,
-                    )
-                    for direction in DIRECTION_NAMES
-                ]
-                return [future.result() for future in futures]
+            return self._pressure_direction_set(
+                idea=idea,
+                prior_constraints=prior_constraints,
+                depth=depth,
+                total=total,
+                conversation=conversation,
+            )
 
         results: list[DirectionPressureResult] = []
         for direction in DIRECTION_NAMES:
@@ -427,24 +420,6 @@ class IrisEngine:
             last_result = result
             feedback = quality_feedback
 
-        def graceful_fallback() -> DirectionPressureResult:
-            # Soft mode (live canvas): never crash the whole turn, and never show
-            # leaked/garbage text. When the local model cannot return a clean
-            # answer (echoes the prompt, leaks a "[placeholder]"), surface an
-            # honest, readable card so the other directions still render.
-            return DirectionPressureResult(
-                direction=direction,
-                pressure=(
-                    f"What is the sharpest {direction.lower()} pressure on this "
-                    "idea right now?"
-                ),
-                why_it_bites=(
-                    "The local model could not return a clean answer for this "
-                    "phrasing. Rephrase the idea a little and proceed again."
-                ),
-                raw=str(last_error) if last_error else "",
-            )
-
         if last_result is not None and feedback is not None:
             # In soft mode prefer a best-effort card over throwing away the whole
             # turn, BUT only if the card is clean. A result that still leaks a
@@ -453,7 +428,7 @@ class IrisEngine:
                 if _has_template_leak(
                     last_result.pressure, last_result.why_it_bites
                 ):
-                    return graceful_fallback()
+                    return _direction_fallback(direction, last_error)
                 return last_result
             raise IrisResponseError(
                 f"{direction} direction failed quality gate: {feedback}"
@@ -461,12 +436,129 @@ class IrisEngine:
         if last_result is not None:
             return last_result
         if allow_soft_failure:
-            return graceful_fallback()
+            return _direction_fallback(direction, last_error)
         if last_error is not None:
             raise last_error
         raise IrisResponseError(
             f"Model did not return {direction} direction pressure output"
         )
+
+    def _pressure_direction_set(
+        self,
+        idea: str,
+        prior_constraints: list[str],
+        depth: int,
+        total: int,
+        conversation: list[dict[str, str]] | None = None,
+    ) -> list[DirectionPressureResult]:
+        feedback: str | None = None
+        last_results: list[DirectionPressureResult] | None = None
+        last_error: IrisResponseError | None = None
+
+        for attempt in range(DIRECTION_SOFT_ATTEMPTS):
+            try:
+                results = self._pressure_direction_set_once(
+                    idea=idea,
+                    prior_constraints=prior_constraints,
+                    depth=depth,
+                    total=total,
+                    rejection_feedback=feedback,
+                    temperature=_retry_temperature(attempt),
+                    conversation=conversation,
+                )
+            except IrisResponseError as exc:
+                last_error = exc
+                feedback = str(exc)
+                continue
+
+            quality_feedback = [
+                item
+                for result in results
+                for item in [
+                    _single_direction_pressure_quality_feedback(
+                        result, prior_constraints, idea
+                    )
+                ]
+                if item is not None
+            ]
+            if not quality_feedback:
+                return results
+
+            last_results = results
+            feedback = "; ".join(quality_feedback[:4])
+
+        if last_results is not None:
+            return [
+                result
+                if not _has_template_leak(result.pressure, result.why_it_bites)
+                else _direction_fallback(result.direction, last_error)
+                for result in last_results
+            ]
+        return [
+            _direction_fallback(direction, last_error)
+            for direction in DIRECTION_NAMES
+        ]
+
+    def _pressure_direction_set_once(
+        self,
+        idea: str,
+        prior_constraints: list[str],
+        depth: int,
+        total: int,
+        rejection_feedback: str | None,
+        temperature: float | None = None,
+        conversation: list[dict[str, str]] | None = None,
+    ) -> list[DirectionPressureResult]:
+        messages = [{"role": "system", "content": DIRECTION_SET_PRESSURE_SYSTEM}]
+        if conversation:
+            messages.extend(conversation)
+        messages.append(
+            {
+                "role": "user",
+                "content": direction_set_pressure_user_prompt(
+                    idea=idea,
+                    prior_constraints=prior_constraints,
+                    depth=depth,
+                    total=total,
+                    enable_thinking=self.config.enable_thinking,
+                    rejection_feedback=rejection_feedback,
+                ),
+            }
+        )
+        raw = self.client.complete(messages, temperature=temperature)
+        data = parse_json_object(raw)
+        cards = data.get("cards")
+        if not isinstance(cards, list):
+            raise IrisResponseError(f"Expected cards list; raw response: {raw[:500]}")
+
+        by_direction: dict[str, DirectionPressureResult] = {}
+        for card in cards:
+            if not isinstance(card, dict):
+                raise IrisResponseError(f"Expected card objects; raw response: {raw[:500]}")
+            try:
+                direction = require_string(card, "direction")
+                if direction not in DIRECTION_NAMES:
+                    raise IrisResponseError(f"Unexpected direction: {direction}")
+                pressure_text, why_text = _extract_direction_pressure_fields(card)
+                if pressure_text is None or why_text is None:
+                    raise IrisResponseError(
+                        f"Expected pressure and why_it_bites for {direction}"
+                    )
+                by_direction[direction] = DirectionPressureResult(
+                    direction=direction,
+                    pressure=pressure_text,
+                    why_it_bites=why_text,
+                    raw=raw,
+                )
+            except IrisResponseError as exc:
+                raise IrisResponseError(f"{exc}; raw response: {raw[:500]}") from exc
+
+        missing = [direction for direction in DIRECTION_NAMES if direction not in by_direction]
+        if missing:
+            raise IrisResponseError(
+                f"Missing direction cards: {', '.join(missing)}; raw response: {raw[:500]}"
+            )
+        return [by_direction[direction] for direction in DIRECTION_NAMES]
 
     def _pressure_direction_once(
         self,
@@ -750,6 +842,26 @@ def _split_inline_why(pressure_text: str) -> tuple[str, str]:
     if not pressure or not why:
         raise IrisResponseError("Expected non-empty string field: why_it_bites")
     return pressure, why
+
+
+def _direction_fallback(
+    direction: str, last_error: IrisResponseError | None = None
+) -> DirectionPressureResult:
+    # Soft mode (live canvas): never crash the whole turn, and never show
+    # leaked/garbage text. When the local model cannot return a clean answer,
+    # surface an honest, readable card so the rest of the stack can render.
+    return DirectionPressureResult(
+        direction=direction,
+        pressure=(
+            f"What is the sharpest {direction.lower()} pressure on this "
+            "idea right now?"
+        ),
+        why_it_bites=(
+            "The local model could not return a clean answer for this "
+            "phrasing. Rephrase the idea a little and proceed again."
+        ),
+        raw=str(last_error) if last_error else "",
+    )
 
 
 def _pressure_quality_feedback(

@@ -13,6 +13,7 @@ from iris.engine import (
 )
 from iris.errors import IrisError, IrisResponseError
 from iris.gate import score_spiral
+from iris.http_client import ChatCompletionsClient
 from iris.parser import parse_json_object, parse_json_object_with_key
 from iris.spiral import SpiralRun
 from iris.ui import (
@@ -33,6 +34,18 @@ from iris.ui import (
 
 
 class FakeClient:
+    def __init__(self, responses: list[str]):
+        self.responses = responses
+        self.messages: list[list[dict[str, str]]] = []
+
+    def complete(
+        self, messages: list[dict[str, str]], temperature: float | None = None
+    ) -> str:
+        self.messages.append(messages)
+        return self.responses.pop(0)
+
+
+class FakeHTTPClient(ChatCompletionsClient):
     def __init__(self, responses: list[str]):
         self.responses = responses
         self.messages: list[list[dict[str, str]]] = []
@@ -660,6 +673,57 @@ class EngineTests(unittest.TestCase):
             ["Constraints", "Limitations", "Capabilities", "Reality Contact"],
         )
         self.assertIn("power saw", payload["cards"][0]["pressure"])
+
+    def test_live_http_engine_uses_single_combined_direction_call(self) -> None:
+        client = FakeHTTPClient(
+            [
+                json.dumps(
+                    {
+                        "cards": [
+                            {
+                                "direction": "Constraints",
+                                "pressure": "What hard trust rule stops neighbors from lending drills?",
+                                "why_it_bites": "A trust boundary can block the handoff before supply matters.",
+                            },
+                            {
+                                "direction": "Limitations",
+                                "pressure": "Where does neighborhood tool lending break when the ladder is needed twice?",
+                                "why_it_bites": "The idea may fail when one shared object has overlapping urgent demand.",
+                            },
+                            {
+                                "direction": "Capabilities",
+                                "pressure": "What capability verifies the drill, ladder, and pickup time before neighbors lend?",
+                                "why_it_bites": "Without coordination, the board cannot tell real availability from hopeful inventory.",
+                            },
+                            {
+                                "direction": "Reality Contact",
+                                "pressure": "What happens when a neighbor arrives to lend the drill and the battery is already dead?",
+                                "why_it_bites": "The first handoff can fail at the exact moment the idea needs trust.",
+                            },
+                        ]
+                    }
+                )
+            ]
+        )
+        engine = IrisEngine(client)
+        payload = json.loads(
+            run_canvas_engine(
+                json.dumps(
+                    {
+                        "frame_id": "frame-1",
+                        "idea": "A neighborhood tool lending board where trusted neighbors lend drills and ladders.",
+                        "depth": 1,
+                        "prior_cards": [],
+                    }
+                ),
+                engine=engine,
+            )
+        )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(payload["cards"]), 4)
+        self.assertEqual(len(client.messages), 1)
+        self.assertIn("exactly four direction cards", client.messages[0][-1]["content"])
 
     def test_ui_engine_request_formats_prior_pressure_constraints(self) -> None:
         prior_cards = [

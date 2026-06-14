@@ -62,6 +62,31 @@ Hard rules:
 The JSON object must have exactly these two string keys:
 {"pressure": "...", "why_it_bites": "..."}"""
 
+DIRECTION_SET_PRESSURE_SYSTEM = """You are Iris, a thinking instrument. You do NOT give answers, solutions, product ideas, or plans.
+Your only job is to apply PRESSURE that makes the human think deeper.
+
+Return exactly FOUR idea-specific pressure questions, one for each requested
+direction: Constraints, Limitations, Capabilities, and Reality Contact. Never
+tell the human what to build.
+
+Hard rules:
+- Each pressure must be one sharp question ending with "?".
+- Name concrete nouns from THIS idea, not generic business language.
+- Do not use phrases like "user adoption", "market fit", "user-friendly",
+  "seamless experience", "existing workarounds", or "the app needs".
+- Do not repeat any prior pressure or reuse its frame.
+- why_it_bites explains only the risk or stakes. It never recommends features,
+  fixes, strategies, or what the builder should do next.
+- Return valid JSON only. No markdown. No reasoning. No prose outside the JSON.
+
+The JSON object must have exactly this shape:
+{"cards": [
+  {"direction": "Constraints", "pressure": "...", "why_it_bites": "..."},
+  {"direction": "Limitations", "pressure": "...", "why_it_bites": "..."},
+  {"direction": "Capabilities", "pressure": "...", "why_it_bites": "..."},
+  {"direction": "Reality Contact", "pressure": "...", "why_it_bites": "..."}
+]}"""
+
 WHY_BITE_SYSTEM = """You are Iris, a thinking instrument. You do NOT give answers, solutions, product ideas, or plans.
 Your job is to write the missing why_it_bites field for one pressure question.
 
@@ -336,6 +361,57 @@ Output ONLY the answer as a JSON object with exactly the keys "pressure" and
 context headings, or these instructions in your output.
 
 Return exactly one new pressure as valid JSON."""
+    return _with_thinking_toggle(prompt, enable_thinking)
+
+
+def direction_set_pressure_user_prompt(
+    idea: str,
+    prior_constraints: list[str],
+    depth: int,
+    total: int,
+    enable_thinking: bool = False,
+    rejection_feedback: str | None = None,
+) -> str:
+    prior = "\n".join(f"- {item}" for item in prior_constraints) or "- None yet"
+    direction_lines = "\n".join(
+        (
+            f"- {name}: {DIRECTION_PROFILES[name]}\n"
+            f"  Opening: {DIRECTION_STYLES[name]['opening']}\n"
+            f"  Shape: {DIRECTION_STYLES[name]['shape']}\n"
+            f"  Avoid: {DIRECTION_STYLES[name]['avoid']}"
+        )
+        for name in DIRECTION_PROFILES
+    )
+    rejection = (
+        f"\nPrevious output was rejected:\n{rejection_feedback}\n"
+        if rejection_feedback
+        else ""
+    )
+    prompt = f"""Idea:
+{idea}
+
+Current depth:
+{depth} of {total}
+
+Prior pressure already applied:
+{prior}
+{rejection}
+Required directions:
+{direction_lines}
+
+Required style:
+- Return one card for each direction, in this exact order: Constraints,
+  Limitations, Capabilities, Reality Contact.
+- Each pressure must start with that direction's required opening.
+- Use concrete nouns from the idea.
+- Do not propose a feature, implementation, strategy, or solution.
+- why_it_bites must explain only the risk or stakes. Do not use recommendation
+  words like "should", "need to", "incorporate", "features", "solution", or
+  "guidance".
+- Do not invent actors or situations that are not grounded in the idea.
+- Do not reuse the same angle as any prior pressure or another card.
+
+Return exactly four direction cards as valid JSON."""
     return _with_thinking_toggle(prompt, enable_thinking)
 
 

@@ -568,15 +568,22 @@ Validation:
 - Space deployment: built and ran on
   `https://build-small-hackathon-iris-pressure-studio.hf.space`, but a live
   CPU Basic pressure round still exceeded the new 4-minute client budget. That
-  prompted a follow-up change to use llama-server's parallel slots.
+  prompted a follow-up change to collapse the four direction requests into one
+  bounded model generation.
 
-### pending - Parallelize live pressure directions on Space
+### pending - Fit live Space pressure rounds on CPU Basic
 
-- Kept MiniCPM load-bearing while dispatching the four live canvas direction
-  calls concurrently against the local llama-server HTTP client.
+- Kept MiniCPM load-bearing while asking the live HTTP client for all four
+  direction cards in one combined model call.
 - Preserved deterministic sequential behavior for tests and fake clients.
+- Raised the live browser/backend timeout budget to 10 minutes for CPU Basic
+  cold runs while keeping `IRIS_MAX_TOKENS` capped.
 - No README submission TODO slots changed.
 
 Validation:
 
-- Targeted direction-pressure regression tests passed.
+- `python3 -m unittest discover -s tests` passed.
+- `python3 -m compileall iris tests app.py` passed.
+- `bash -n scripts/space_entrypoint.sh` passed.
+- `git diff --check` passed.
+- `./scripts/check_repo.sh` passed.
